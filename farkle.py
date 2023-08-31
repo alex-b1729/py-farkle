@@ -62,6 +62,10 @@ class DiceHand():
         for i, d in self.all_dice.items(): 
             d.die.roll()
             d.die.locked = False
+            
+    def reset_dice(self):
+        """alias for roll_all_dice"""
+        self.roll_all_dice()
         
     def roll(self):
         '''roll non-locked dice'''
@@ -272,12 +276,67 @@ class DiceHand():
             if dh not in ps: ps.append(dh)
         return ps
         
+    def score_from_dicehand(self, dice_hand):
+        """add score and locks corresponding dice"""
+        assert dice_hand in self
+        self.score += dice_hand.score
+        self.lock_from_dicehand(dice_hand)
+        
     
 class Player():
-    def __init__(self, name: str):
+    def __init__(self, name: str, is_robot: bool):
         self.name = name
+        self.is_robot = is_robot
         self.dice_hand = DiceHand()
         self.score = 0
+        
+    def __repr__(self):
+        return f'{self.name}: {self.score} points'
+    
+    def roll(self):
+        """alias for self.dice_hand.roll()"""
+        self.dice_hand.roll()
+        
+    @property
+    def has_scoring_options(self):
+        return self.dice_hand.possible_scores != []
+    
+    def _robot_score_roll(self):
+        # this robot's dumb and randomly chooses a possible score
+        assert self.has_scoring_options
+        dh = random.choice(self.dice_hand.possible_scores)
+        self.dice_hand.score_from_dicehand(dh)
+        
+    def _human_score_roll(self):
+        # TODO: implement command line input stuff
+        pass
+    
+    def score_roll(self):
+        """choose from possible_scores, add score, and lock dice"""
+        # TODO: add logic for when player uses all dice and goes "around the horn"
+        if self.is_robot: self._robot_score_roll()
+        else: self._human_score_roll()
+        
+    def finalize_turn(self):
+        # TODO: below doesn't work when player has just choosen the only dice
+        # from which they can score
+        if self.has_scoring_options:
+            self.score += self.dice_hand.score
+        self.dice_hand.reset_dice()
+    
+    @property
+    def _robot_will_roll_again(self):
+        # this robot's dumb and just decides randomly
+        return random.choice([True, False])
+    
+    @property
+    def _human_will_roll_again(self):
+        # TODO: implement command line stuff
+        pass
+    
+    @property
+    def will_roll_again(self):
+        return self._robot_will_roll_again if self.is_robot else self._human_will_roll_again
         
         
 class ScoringCombo(NamedTuple):
@@ -303,24 +362,90 @@ SCORING_HANDS = [
     ]
     
     
-class ScoreKeeper():
-    def __init__(self):
-        pass
+class Game():
+    def __init__(self, 
+                 num_human_players: int = 1, 
+                 num_robot_players: int = 5, 
+                 starting_player: str | None = None):
+        """
+        Initiate a farkle game. 
+
+        Parameters
+        ----------
+        num_human_players : int, optional
+            Number of human controlled players. The default is 1.
+        num_robot_players : int, optional
+            Number of computer controlled players. The default is 5.
+        starting_player : str | None, optional
+            Name of the starting player. Must be in the form `human{i}` or
+            `robot{i}` where i is in the range of either num_human_players or
+            num_robot_players. When None the first player is choosen at
+            random. The default is None.
+
+        Returns
+        -------
+        None.
+
+        """
+        self.num_human_players = num_human_players
+        self.num_robot_players = num_robot_players
+        self.num_players = self.num_human_players + self.num_robot_players
+        
+        player_names = [f'human{i}' for i in range(self.num_human_players)] + \
+            [f'robot{i}' for i in range(self.num_robot_players)]
+        self.players = {name: Player(name) for name in player_names}
+        
+        if starting_player is not None:
+            assert starting_player in self.players.keys()
+            self.starting_player = starting_player
+        else:
+            self.starting_player = random.choice(list(self.players.keys()))
             
+        self.whos_turn = self.starting_player
+        self.player_order = list(self.players.keys())
+        
+    def pass_turns(self):
+        i = self.player_order.index(self.whos_turn)
+        self.whos_turn = self.player_order[(i + 1) % self.num_players]
+    
+    def play_turn(self):
+        """
+        Controls game play
+        """
+        # 1. Fetch player who's turn it is
+        active_player = self.players[self.whos_turn]
+        
+        # init variable to track if player has option to continue turn
+        turn_continues = True
+        gone_bust = False
+        
+        while turn_continues:
+            # 2. Roll the dice
+            active_player.roll()
+            
+            # 3. Does roll result in possible scoring combos?
+            if active_player.has_scoring_options:
+                # 4. choose dice to score
+                active_player.score_roll()
+                # 5. will they roll again?
+                turn_continues = active_player.will_roll_again
+            else:
+                turn_continues = False
+                gone_bust = True
+                
+            # 6. end of turn logic
+            if not turn_continues:
+                if not gone_bust:
+                    pass
+        
+        # n. assign turn to next player
+        self.pass_turns()
+        
+        
     
     
 if __name__ == '__main__':
-    # dh1 = DiceHand(1,1,1,5,2,5)
-    dh1 = DiceHand()
-    dh1.lock_dice(0,1)
-    print(dh1, '\n\n')
-    
-    ps = dh1.possible_scores()
-    for dh in ps:
-        print(dh, end='\n\n')
-    
-    # l = [DiceHand(1,2,3), DiceHand(4,5,6)]
-    # if DiceHand(1,2) in l:
-    #     print('yes')
+    game = Game()
+    print(game.players)
         
 
