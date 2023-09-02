@@ -113,7 +113,7 @@ class DiceHand():
             
     def add_from_dicehand(self, other):
         """combines non-locked dice from other into self"""
-        self.add_dice(other.dice_values())
+        self.add_dice(other.dice_values_free())
             
     def __add__(self, other):
         """combines dice and adds scores"""
@@ -275,6 +275,10 @@ class DiceHand():
         for dh in duplicate_possible_scores:
             if dh not in ps: ps.append(dh)
         return ps
+    
+    @property
+    def has_possible_scores(self) -> bool:
+        return self.possible_scores() != []
         
     def score_from_dicehand(self, dice_hand):
         """add score and locks corresponding dice"""
@@ -289,17 +293,22 @@ class Player():
         self.is_robot = is_robot
         self.dice_hand = DiceHand()
         self.score = 0
+        self.has_reroll_option = None
+        
+        self.roll()
         
     def __repr__(self):
         return f'{self.name}: {self.score} points'
     
     def roll(self):
-        """alias for self.dice_hand.roll()"""
+        """roll dice_hand and record if player has option to reroll"""
         self.dice_hand.roll()
+        self.has_reroll_option = self.has_scoring_options
         
     @property
     def has_scoring_options(self):
-        return self.dice_hand.possible_scores != []
+        """alias for self.dice_hand.has_possible_scores"""
+        return self.dice_hand.has_possible_scores
     
     def _robot_score_roll(self):
         # this robot's dumb and randomly chooses a possible score
@@ -320,8 +329,7 @@ class Player():
     def finalize_turn(self):
         # TODO: below doesn't work when player has just choosen the only dice
         # from which they can score
-        if self.has_scoring_options:
-            self.score += self.dice_hand.score
+        self.score += self.dice_hand.score
         self.dice_hand.reset_dice()
     
     @property
@@ -336,7 +344,34 @@ class Player():
     
     @property
     def will_roll_again(self):
+        """this decision has to be based on the game so has to be aware of the 
+        Game object or it's status"""
         return self._robot_will_roll_again if self.is_robot else self._human_will_roll_again
+    
+    def play_turn(self, game = None):
+        """
+        - Not sure if I want this under the Player class or Game class. 
+        - Player has to be aware of the game to make good decisions but not
+          sure what form that should take
+        """
+        turn_continues = True
+        
+        while turn_continues:
+            # 1. player rolls
+            self.roll()
+            
+            # 2. are there scoring options? Choose one
+            if self.has_scoring_options: self.score_roll()
+            
+            # 3. if able, will player reroll?
+            if self.has_reroll_option: turn_continues = self.will_roll_again
+            else: turn_continues = False
+            
+            # 4. finalize points if player didn't bust
+            if self.has_reroll_option and not turn_continues: 
+                self.finalize_turn()
+                
+        
         
         
 class ScoringCombo(NamedTuple):
@@ -366,7 +401,8 @@ class Game():
     def __init__(self, 
                  num_human_players: int = 1, 
                  num_robot_players: int = 5, 
-                 starting_player: str | None = None):
+                 starting_player: str | None = None, 
+                 score_objective: int = 5000):
         """
         Initiate a farkle game. 
 
@@ -381,6 +417,9 @@ class Game():
             `robot{i}` where i is in the range of either num_human_players or
             num_robot_players. When None the first player is choosen at
             random. The default is None.
+        score_objective : int, optional
+            The first player to reach or exceed this score is the winner. 
+            The default is 5000. 
 
         Returns
         -------
@@ -393,7 +432,9 @@ class Game():
         
         player_names = [f'human{i}' for i in range(self.num_human_players)] + \
             [f'robot{i}' for i in range(self.num_robot_players)]
-        self.players = {name: Player(name) for name in player_names}
+        self.players = {}
+        for name in player_names:
+            self.players[name] = Player(name=name, is_robot=(name[:5]=='robot'))
         
         if starting_player is not None:
             assert starting_player in self.players.keys()
@@ -403,6 +444,8 @@ class Game():
             
         self.whos_turn = self.starting_player
         self.player_order = list(self.players.keys())
+        
+        self.score_objective = score_objective
         
     def pass_turns(self):
         i = self.player_order.index(self.whos_turn)
