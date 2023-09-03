@@ -3,6 +3,7 @@ import random
 import logging
 from typing import NamedTuple
 from dataclasses import dataclass
+from functools import cached_property
 
 
 class Die(object):
@@ -237,7 +238,7 @@ class DiceHand(object):
         for sh in SCORING_HANDS:
             # print(sh.dice)
             # how many times does the scoring hand occur?
-            count = search_dh.count(sh.dice)
+            count = search_dh.count(sh)
             # print('occurs', count)
             # if count > 0: print('found!\n', sh.dice)
             for i in range(count):
@@ -278,8 +279,8 @@ class DiceHand(object):
         return ps
 
     @property
-    def has_possible_scores(self) -> bool:
-        return self.possible_scores() != []
+    def farkled(self) -> bool:
+        return self.possible_scores() == []
 
     def score_from_dicehand(self, dice_hand):
         """add score and locks corresponding dice"""
@@ -289,7 +290,7 @@ class DiceHand(object):
 
 
 # TODO: Add ability to define scoring patterns such as 3 pairs
-SCORING_HANDS = [
+SCORING_HANDS = (
 
     DiceHand(1, score=100)
     , DiceHand(5, score=50)
@@ -300,4 +301,59 @@ SCORING_HANDS = [
     , DiceHand(5, 5, 5, score=500)
     , DiceHand(6, 6, 6, score=600)
 
-]
+)
+
+
+@dataclass(frozen=True)
+class RollDecision:
+    before_dicehand: DiceHand
+    after_dicehand: DiceHand
+    will_roll_again: bool
+
+
+@dataclass(frozen=True)
+class GameState:
+    """what attributes do I need here?"""
+    scores: dict[str: int]  # player_name: points
+    goal_score: int = 5000
+    # TODO validate that current_player in scores.keys()
+
+    def update_score(self, player_name: str, points: int) -> "GameState":
+        """return new GameState with updated player score"""
+        new_scores = copy.deepcopy(self.scores)
+        new_scores[player_name] = points
+        return GameState(scores=new_scores, goal_score=self.goal_score)
+        # TODO: does this belong here? Maybe under engine Farkle.play()?
+
+    @cached_property
+    def game_over(self) -> bool:
+        return any([i > self.goal_score for i in self.scores.values()])
+
+    @cached_property
+    def winner(self) -> str | None:
+        """returns name of winning player"""
+        if self.game_over:
+            for p, s in self.scores.items():
+                if s > self.goal_score:
+                    return p
+        else:
+            return None
+
+
+@dataclass(frozen=True)
+class Turn:
+    player_name: str
+    points_earned: int
+    before_state: GameState
+    after_state: GameState
+
+
+if __name__ == '__main__':
+    gs = GameState({'p1': 100, 'p2': 0}, goal_score=5000)
+    print(gs.game_over)
+    print(gs.winner)
+    print(gs.scores)
+    gs_new = gs.update_score('p2', 5010)
+    print(gs_new.winner)
+    print(gs_new.game_over)
+    print(gs_new.scores)
