@@ -37,7 +37,7 @@ class Player(metaclass=abc.ABCMeta):
 
 
 class RobotPlayer(Player, metaclass=abc.ABCMeta):
-    def __int__(self, name: str, delay_seconds: float = 0.5) -> None:
+    def __int__(self, name: str, delay_seconds: float = 1) -> None:
         super().__init__(name)
         self.delay_seconds = delay_seconds
 
@@ -51,7 +51,11 @@ class RobotPlayer(Player, metaclass=abc.ABCMeta):
 
 
 class RandomRobotPlayer(RobotPlayer):
-    """This robot's dumb and makes random decisions"""
+    def __init__(self, name: str, delay_seconds: int):
+        """This robot's dumb and makes random decisions"""
+        super().__init__(name=name)
+        self.delay_seconds = delay_seconds
+
     def robot_play_dicehand(self, dice_hand: DiceHand, game_state: GameState) -> RollDecision:
         score_decision: DiceHand = random.choice(dice_hand.possible_scores())
         will_roll_again = random.choice([True, False])
