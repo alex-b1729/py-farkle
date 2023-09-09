@@ -42,6 +42,8 @@ class DiceHand(object):
         If both num_dice is not None and args are passed, num_dice is ignored
         and dice are generated using args.
         """
+        # TODO: tempted to make self.dice = None unless self.roll() has been called
+        # but not sure what this would affect in current code
         if not args:
             self.num_dice = 6 if 'num_dice' not in kwargs else kwargs['num_dice']
             self.dice = {i: GameDie(Die()) for i in range(self.num_dice)}
@@ -66,8 +68,9 @@ class DiceHand(object):
             d.die.locked = False
 
     def reset_dice(self):
-        """alias for roll_all_dice"""
+        """rolls all dice and sets score = 0"""
         self.roll_all_dice()
+        self.score = 0
 
     def roll(self):
         """roll non-locked dice"""
@@ -280,7 +283,8 @@ class DiceHand(object):
 
     @property
     def farkled(self) -> bool:
-        return self.possible_scores() == []
+        """True if no possible scores and all dice are not locked"""
+        return self.possible_scores() == [] and not self.all_locked
 
     def score_from_dicehand(self, dice_hand):
         """add score and locks corresponding dice"""
@@ -306,24 +310,21 @@ SCORING_HANDS = (
 
 @dataclass(frozen=True)
 class RollDecision:
-    before_dicehand: DiceHand
-    after_dicehand: DiceHand
+    dicehand_pre: DiceHand
+    dicehand_post: DiceHand
     will_roll_again: bool
 
 
 @dataclass(frozen=True)
 class GameState:
-    """what attributes do I need here?"""
     scores: dict[str: int]  # player_name: points
+    current_player_name: str
+    dice_hand: DiceHand
     goal_score: int = 5000
-    # TODO validate that current_player in scores.keys()
 
-    def update_score(self, player_name: str, points: int) -> "GameState":
-        """return new GameState with updated player score"""
-        new_scores = copy.deepcopy(self.scores)
-        new_scores[player_name] = points
-        return GameState(scores=new_scores, goal_score=self.goal_score)
-        # TODO: does this belong here? Maybe under engine Farkle.play()?
+    def __post_init__(self):
+        """validation"""
+        # TODO: validate current_player_name in scores.keys()
 
     @cached_property
     def game_over(self) -> bool:
@@ -344,16 +345,7 @@ class GameState:
 class Turn:
     player_name: str
     points_earned: int
-    before_state: GameState
-    after_state: GameState
 
 
 if __name__ == '__main__':
     gs = GameState({'p1': 100, 'p2': 0}, goal_score=5000)
-    print(gs.game_over)
-    print(gs.winner)
-    print(gs.scores)
-    gs_new = gs.update_score('p2', 5010)
-    print(gs_new.winner)
-    print(gs_new.game_over)
-    print(gs_new.scores)

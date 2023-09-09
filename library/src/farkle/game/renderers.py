@@ -1,10 +1,10 @@
+import abc
 from dataclasses import dataclass
 
-from ...farkle.logic.models import GameState
+from farkle.logic.models import GameState
 
 
-class Renderer:
-    """renders game state"""
-
-    def render(self, game_state: GameState) -> str:
-        """fill out"""
+class Renderer(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def render(self, game_state: GameState) -> None:
+        """renders game state"""
