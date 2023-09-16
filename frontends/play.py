@@ -3,6 +3,8 @@ from farkle.game.players import RandomRobotPlayer
 
 from console.renderers import ConsoleRenderer
 
+# source venv/bin/activate
+
 player1 = RandomRobotPlayer(name='robot1', delay_seconds=1)
 player2 = RandomRobotPlayer(name='ROBOT2', delay_seconds=1)
 

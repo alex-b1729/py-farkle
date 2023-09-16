@@ -46,10 +46,12 @@ class Farkle:
                                    game_state_pre.goal_score)
             renderer.render(game_state)
 
-            if not farkled:
+            will_roll_again = True
+            if not farkled and will_roll_again:
                 roll_decision = player.play_dicehand(dice_hand, game_state)
                 dice_hand = roll_decision.dicehand_post
-                will_roll_again = roll_decision.will_roll_again
+                if will_roll_again := roll_decision.will_roll_again:
+                    dice_hand.roll()
 
         points_earned = dice_hand.score if not farkled else 0
 
@@ -69,10 +71,20 @@ class Farkle:
 
         while True:
             self.renderer.render(game_state)
-            # TODO: maybe need a play_turn() attribute for Farkle to render between rolls
             if game_state.game_over:
                 break
-            self.player_turn(player, dice_hand, game_state, self.renderer)
+
+            # record player turn
+            turn = self.player_turn(player, dice_hand, game_state, self.renderer)
+            player.score += turn.points_earned
+            scores[turn.player_name] += turn.points_earned
+
+            # update game state
+            game_state = GameState(scores=scores,
+                                   current_player_name=player.name,
+                                   dice_hand=dice_hand,
+                                   goal_score=self.goal_score)
+
             player = next(whos_turn)
 
 

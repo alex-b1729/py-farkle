@@ -18,7 +18,7 @@ class ConsoleRenderer(Renderer):
             print(f'{p}: {s} points', end='\n')
         if not game_state.game_over:
             # dice hand
-            print('\nDice:\n', game_state.dice_hand, end='\n')
+            print('\nDice:\n', game_state.dice_hand, end='')
             # scoring options
             ps: list = game_state.dice_hand.possible_scores()
             for i in range(len(ps)):

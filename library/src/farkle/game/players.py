@@ -14,22 +14,22 @@ class Player(metaclass=abc.ABCMeta):
     def __repr__(self):
         return f'{self.name}: {self.score} points'
 
-    def play_turn(self, game_state: GameState) -> GameState:
-        """updates player points and returns new game state"""
-        dice_hand = DiceHand()  # initial roll
-
-        farkled = dice_hand.farkled
-        will_roll_again = not farkled
-
-        while will_roll_again and not farkled:
-            roll_decision = self.play_dicehand(dice_hand, game_state)
-            dice_hand = roll_decision.dicehand_post
-            will_roll_again = roll_decision.will_roll_again
-            farkled = dice_hand.farkled
-
-        points = dice_hand.score if not farkled else 0
-        self.score += points
-        return game_state.update_score(self.name, points)
+    # def play_turn(self, game_state: GameState) -> GameState:
+    #     """updates player points and returns new game state"""
+    #     dice_hand = DiceHand()  # initial roll
+    #
+    #     farkled = dice_hand.farkled
+    #     will_roll_again = not farkled
+    #
+    #     while will_roll_again and not farkled:
+    #         roll_decision = self.play_dicehand(dice_hand, game_state)
+    #         dice_hand = roll_decision.dicehand_post
+    #         will_roll_again = roll_decision.will_roll_again
+    #         farkled = dice_hand.farkled
+    #
+    #     points = dice_hand.score if not farkled else 0
+    #     self.score += points
+    #     return game_state.update_score(self.name, points)
 
     @abc.abstractmethod
     def play_dicehand(self, dice_hand, game_state: GameState) -> RollDecision:

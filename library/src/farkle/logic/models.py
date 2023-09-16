@@ -84,8 +84,9 @@ class DiceHand(object):
             self.dice[i].locked = True
 
     def lock_from_dicehand(self, other):
-        """Lock dice corresponding to unlocked dice from other
+        """Lock dice corresponding to unlocked dice from other and add score.
         All dice values in other must be in and unlocked in self"""
+        self.score += other.score
         for i, d in other.free_dice.items():
             found = False
             i = 0
@@ -328,7 +329,7 @@ class GameState:
 
     @cached_property
     def game_over(self) -> bool:
-        return any([i > self.goal_score for i in self.scores.values()])
+        return any([i >= self.goal_score for i in self.scores.values()])
 
     @cached_property
     def winner(self) -> str | None:
