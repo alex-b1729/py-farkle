@@ -14,23 +14,6 @@ class Player(metaclass=abc.ABCMeta):
     def __repr__(self):
         return f'{self.name}: {self.score} points'
 
-    # def play_turn(self, game_state: GameState) -> GameState:
-    #     """updates player points and returns new game state"""
-    #     dice_hand = DiceHand()  # initial roll
-    #
-    #     farkled = dice_hand.farkled
-    #     will_roll_again = not farkled
-    #
-    #     while will_roll_again and not farkled:
-    #         roll_decision = self.play_dicehand(dice_hand, game_state)
-    #         dice_hand = roll_decision.dicehand_post
-    #         will_roll_again = roll_decision.will_roll_again
-    #         farkled = dice_hand.farkled
-    #
-    #     points = dice_hand.score if not farkled else 0
-    #     self.score += points
-    #     return game_state.update_score(self.name, points)
-
     @abc.abstractmethod
     def play_dicehand(self, dice_hand, game_state: GameState) -> RollDecision:
         """Handles player's rolling and scoring decisions and returns points earned"""
@@ -59,6 +42,20 @@ class RandomRobotPlayer(RobotPlayer):
     def robot_play_dicehand(self, dice_hand: DiceHand, game_state: GameState) -> RollDecision:
         score_decision: DiceHand = random.choice(dice_hand.possible_scores())
         will_roll_again = random.choice([True, False])
+        post_dicehand = dice_hand.copy()
+        post_dicehand.lock_from_dicehand(score_decision)
+        return RollDecision(dice_hand, post_dicehand, will_roll_again)
+
+
+class HumanPlayer(Player):
+    def __int__(self, name: str):
+        super().__init__(name)
+
+    def play_dicehand(self, dice_hand, game_state: GameState) -> RollDecision:
+        select_ps_index = int(input('Index of possible score to play: ')) - 1
+        score_decision: DiceHand = dice_hand.possible_scores()[select_ps_index]
+        select_roll_again = input('Do you want to roll again? [y/n] ')
+        will_roll_again = select_roll_again.lower() == 'y'
         post_dicehand = dice_hand.copy()
         post_dicehand.lock_from_dicehand(score_decision)
         return RollDecision(dice_hand, post_dicehand, will_roll_again)
