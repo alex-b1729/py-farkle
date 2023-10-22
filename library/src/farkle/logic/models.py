@@ -63,9 +63,10 @@ class DiceHand(object):
 
     def roll_all_dice(self):
         """rolls and unlocks all dice"""
-        for i, d in self.dice.items():
-            d.die.roll()
-            d.die.locked = False
+        for i, gd in self.dice.items():
+            gd: GameDie
+            gd.die.roll()
+            gd.locked = False
 
     def reset_dice(self):
         """rolls all dice and sets score = 0"""
@@ -349,4 +350,13 @@ class Turn:
 
 
 if __name__ == '__main__':
-    gs = GameState({'p1': 100, 'p2': 0}, goal_score=5000)
+    dh = DiceHand()
+    print(dh)
+    dh.lock_dice(0,1,2,3,4)
+    print(dh)
+    print(dh.all_locked)
+    dh.lock_dice(5)
+    print(dh)
+    print(dh.all_locked)
+    dh.roll_all_dice()
+    print(dh)

@@ -46,12 +46,10 @@ class Farkle:
                                    game_state_pre.goal_score)
             renderer.render(game_state)
 
-            will_roll_again = True
-            if not farkled and will_roll_again:
+            if not farkled:
                 roll_decision = player.play_dicehand(dice_hand, game_state)
                 dice_hand = roll_decision.dicehand_post
-                if will_roll_again := roll_decision.will_roll_again:
-                    dice_hand.roll()
+                will_roll_again = roll_decision.will_roll_again
 
         points_earned = dice_hand.score if not farkled else 0
 
