@@ -1,6 +1,6 @@
 import time
 
-from farkle.logic.models import GameState
+from farkle.logic.gameobjects import GameState
 from farkle.game.renderers import Renderer
 
 

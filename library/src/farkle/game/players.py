@@ -2,8 +2,8 @@ import abc
 import time
 import random
 
-from farkle.logic.models import GameState
-from farkle.logic.models import DiceHand, Turn, RollDecision
+from farkle.logic.gameobjects import GameState
+from farkle.logic.gameobjects import DiceHand, Turn, RollDecision
 
 
 class Player(metaclass=abc.ABCMeta):

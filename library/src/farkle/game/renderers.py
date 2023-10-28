@@ -1,7 +1,7 @@
 import abc
 from dataclasses import dataclass
 
-from farkle.logic.models import GameState
+from farkle.logic.gameobjects import GameState
 
 
 class Renderer(metaclass=abc.ABCMeta):

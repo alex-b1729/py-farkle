@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from farkle.game.players import Player, RandomRobotPlayer
 from farkle.game.renderers import Renderer
-from farkle.logic.models import GameState, DiceHand, Turn
+from farkle.logic.gameobjects import GameState, DiceHand, Turn
 
 @dataclass(frozen=True)
 class Farkle:
