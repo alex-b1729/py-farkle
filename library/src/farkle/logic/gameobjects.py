@@ -132,8 +132,8 @@ class DiceHand(object):
     def __eq__(self, other):
         """equal if same scores and same values of locked and unlocked dice"""
         score_eq = self.score == other.score
-        free_eq = set(self.dice_values_free()) == set(other.dice_values_free())
-        locked_eq = set(self.dice_values_locked()) == set(other.dice_values_locked())
+        free_eq = self.dice_values_free() == other.dice_values_free()
+        locked_eq = self.dice_values_locked() == other.dice_values_locked()
         return score_eq and free_eq and locked_eq
 
     # id like this to be a @property but want to
@@ -145,11 +145,11 @@ class DiceHand(object):
 
     def dice_values_free(self) -> list:
         gd: GameDie
-        return [gd.die.value for gd in self.dice.values() if not gd.locked]
+        return sorted([gd.die.value for gd in self.dice.values() if not gd.locked])
 
     def dice_values_locked(self) -> list:
         gd: GameDie
-        return [gd.die.value for gd in self.dice.values() if gd.locked]
+        return sorted([gd.die.value for gd in self.dice.values() if gd.locked])
 
     @property
     def free_dice(self):
@@ -350,13 +350,11 @@ class Turn:
 
 
 if __name__ == '__main__':
-    dh = DiceHand()
-    print(dh)
-    dh.lock_dice(0,1,2,3,4)
-    print(dh)
-    print(dh.all_locked)
-    dh.lock_dice(5)
-    print(dh)
-    print(dh.all_locked)
-    dh.roll_all_dice()
-    print(dh)
+    dh1 = DiceHand(1,1,3)
+    print(dh1.dice_values_free())
+    dh1.lock_dice(0)
+    print(dh1.dice_values_locked())
+    dh2 = DiceHand(1,3,1)
+    dh2.lock_dice(0)
+    print(dh2.dice_values_free())
+    print(dh1 == dh2)
