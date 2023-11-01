@@ -131,10 +131,22 @@ class DiceHand(object):
 
     def __eq__(self, other):
         """equal if same scores and same values of locked and unlocked dice"""
-        score_eq = self.score == other.score
-        free_eq = self.dice_values_free() == other.dice_values_free()
-        locked_eq = self.dice_values_locked() == other.dice_values_locked()
-        return score_eq and free_eq and locked_eq
+        try:
+            score_eq = self.score == other.score
+            free_eq = self.dice_values_free() == other.dice_values_free()
+            locked_eq = self.dice_values_locked() == other.dice_values_locked()
+            return score_eq and free_eq and locked_eq
+        except AttributeError:
+            return False
+
+    def __ne__(self, other):
+        return not self == other
+
+    def __hash__(self):
+        s = (self.score,
+             ','.join([str(i) for i in self.dice_values_free()]),
+             ','.join([str(i) for i in self.dice_values_locked()]))
+        return hash(s)
 
     # id like this to be a @property but want to
     # make it like as dictionary.values()
@@ -351,10 +363,8 @@ class Turn:
 
 if __name__ == '__main__':
     dh1 = DiceHand(1,1,3)
-    print(dh1.dice_values_free())
-    dh1.lock_dice(0)
-    print(dh1.dice_values_locked())
+    print(dh1)
+    print(hash(dh1))
     dh2 = DiceHand(1,3,1)
-    dh2.lock_dice(0)
-    print(dh2.dice_values_free())
-    print(dh1 == dh2)
+    print(dh2)
+    print(hash(dh2))
