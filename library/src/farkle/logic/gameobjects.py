@@ -203,7 +203,41 @@ class DiceHand(object):
         #     s += f'{i}: {d.die} - Locked\n'
         # s += f'Score: {self.score}'
         # return s
-        return f'DiceHand({", ".join([str(d.die.value) for d in self.dice.values()])}, score={self.score})'
+        return (f'DiceHand('
+                f'free=[{", ".join([str(d) for d in self.dice_values_free()])}], '
+                f'locked=[{", ".join([str(d) for d in self.dice_values_locked()])}], '
+                f'score={self.score})')
+
+    @staticmethod
+    def parse_repr(_repr: str):
+        """parses str representation of a DiceHand obj and returns a DiceHand obj"""
+        free_loc = _repr.find('free=[')
+        locked_loc = _repr.find('], locked=[')
+        score_loc = _repr.find('], score=')
+        end_start_loc = _repr.find(')')
+        free_dice_nums = [int(i) for i in _repr[free_loc+6: locked_loc].split(', ') if i != '']
+        locked_dice_nums = [int(i) for i in _repr[locked_loc + 11: score_loc].split(', ') if i != '']
+        score = int(_repr[score_loc + 9: end_start_loc])
+        dh = DiceHand(free_dice_nums + locked_dice_nums, score=score)
+        num_dice = len(free_dice_nums + locked_dice_nums)
+        lock_idxs = [i for i in range(num_dice - len(locked_dice_nums), num_dice)]
+        dh.lock_dice(*lock_idxs)
+        return dh
+
+    @property
+    def json_encode(self):
+        return {'__DiceHand__': True,
+                'free': self.dice_values_free(),
+                'locked': self.dice_values_locked(),
+                'score': self.score}
+
+    @staticmethod
+    def json_decode(dct):
+        dh = DiceHand(dct['free'] + dct['locked'], score=dct['score'])
+        num_dice = len(dct['free'] + dct['locked'])
+        lock_idxs = [i for i in range(num_dice - len(dct['locked']), num_dice)]
+        dh.lock_dice(*lock_idxs)
+        return dh
 
     def __contains__(self, key):
         """checks if all dice in key are included and unlocked in self"""
