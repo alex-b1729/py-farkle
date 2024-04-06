@@ -196,13 +196,14 @@ class DiceHand(object):
         return dh
 
     def __repr__(self):
-        s = ''
-        for i, d in self.free_dice.items():
-            s += f'{i}: {d.die}\n'
-        for i, d in self.locked_dice.items():
-            s += f'{i}: {d.die} - Locked\n'
-        s += f'Score: {self.score}'
-        return s
+        # s = ''
+        # for i, d in self.free_dice.items():
+        #     s += f'{i}: {d.die}\n'
+        # for i, d in self.locked_dice.items():
+        #     s += f'{i}: {d.die} - Locked\n'
+        # s += f'Score: {self.score}'
+        # return s
+        return f'DiceHand({", ".join([str(d.die.value) for d in self.dice.values()])}, score={self.score})'
 
     def __contains__(self, key):
         """checks if all dice in key are included and unlocked in self"""
