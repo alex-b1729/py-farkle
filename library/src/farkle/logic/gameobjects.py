@@ -240,7 +240,8 @@ class DiceHand(object):
         return dh
 
     def __contains__(self, key):
-        """checks if all dice in key are included and unlocked in self"""
+        """checks if all dice in key are included and unlocked in self
+        and that scores are equal"""
         is_contained = False
         if isinstance(key, DiceHand):
             dice_self = self.copy()  # without will modify and lock self
@@ -265,7 +266,8 @@ class DiceHand(object):
                     d_count += 1
             # if didnt_find still false
             # means found all comparison dice in self
-            if not didnt_find: is_contained = True
+            if not didnt_find: # and self.score == dice_compare.score:
+                is_contained = True
         return is_contained
 
     def copy(self):
@@ -283,16 +285,18 @@ class DiceHand(object):
 
     def _all_duplicate_possible_scores(self, dice_hand) -> list:
         """returns list of DiceHands representing all possible subsets of
-        dice_hand dice that can be scored - but includes some duplicates"""
+        dice_hand dice that can be scored - but includes duplicates"""
+        # TODO: This is so inefficient and is far too repetitive
         search_dh = dice_hand.copy()
         scoring_options = []
 
         for sh in SCORING_HANDS:
-            # print(sh.dice)
+            # print(sh)
             # how many times does the scoring hand occur?
             count = search_dh.count(sh)
             # print('occurs', count)
-            # if count > 0: print('found!\n', sh.dice)
+            # if count > 0: print('found!\n')
+            # else: print('not found...\n')
             for i in range(count):
                 this_score = sh.score * (i + 1)
                 # print('this_score', this_score)
@@ -310,13 +314,15 @@ class DiceHand(object):
                 if not scoring_dh.all_locked:
                     # recursively find remaining scoring options
                     remaining_scoring_options: list = self._all_duplicate_possible_scores(scoring_dh)
+                    # print(remaining_scoring_options)
 
                     for dh in remaining_scoring_options:
                         potential_add_dh = scoring_option_dh + dh
                         if potential_add_dh not in scoring_options:
                             scoring_options.append(potential_add_dh)
                 else:
-                    return scoring_options
+                    break
+                    # return scoring_options
 
         return scoring_options
 
@@ -397,9 +403,9 @@ class Turn:
 
 
 if __name__ == '__main__':
-    dh1 = DiceHand(1,1,3)
-    print(dh1)
-    print(hash(dh1))
-    dh2 = DiceHand(1,3,1)
-    print(dh2)
-    print(hash(dh2))
+    dh1 = DiceHand(1,1,1)
+    print(dh1.possible_scores())
+    # dh1 = DiceHand(5,5,5)
+    # print(dh1._all_duplicate_possible_scores(DiceHand(5,5,5)))
+    # for sh in SCORING_HANDS:
+    #     print(sh)
