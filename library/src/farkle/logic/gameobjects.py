@@ -2,6 +2,7 @@ import copy
 import random
 import logging
 from typing import NamedTuple
+from time import perf_counter
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -243,7 +244,7 @@ class DiceHand(object):
         """checks if all dice in key are included and unlocked in self
         and that scores are equal"""
         is_contained = False
-        if isinstance(key, DiceHand):
+        if isinstance(key, DiceHand) and len(self.free_dice) >= len(key.free_dice):
             dice_self = self.copy()  # without will modify and lock self
             dice_compare: DiceHand = key.copy()
             didnt_find = False
@@ -336,6 +337,27 @@ class DiceHand(object):
             if dh not in ps: ps.append(dh)
         return ps
 
+    def _all_duplicate_possible_scores_updated(self, dice_hand, ps_list: list = []) -> list:
+        """trynna make this logic faster"""
+        search_dh = dice_hand.copy()
+        possible_score_list = []
+        for sh in SCORING_HANDS:
+            if sh in search_dh: possible_score_list.append(sh)
+        for ps in possible_score_list:
+            new_search_dh = search_dh.copy()
+            new_search_dh.lock_from_dicehand(ps)
+            additional_possible_score_list = self._all_duplicate_possible_scores_updated(new_search_dh,
+                                                                                         possible_score_list)
+            for aps in additional_possible_score_list:
+                ps_sum = ps + aps
+                # this check speeds it up ~2x
+                if ps_sum not in ps_list + possible_score_list:
+                    possible_score_list.append(ps_sum)
+        return possible_score_list
+
+    def possible_scores_updated(self):
+        return list(set(self._all_duplicate_possible_scores_updated(self.copy())))
+
     @property
     def farkled(self) -> bool:
         """True if no possible scores and all dice are not locked"""
@@ -403,9 +425,35 @@ class Turn:
 
 
 if __name__ == '__main__':
-    dh1 = DiceHand(1,1,1)
-    print(dh1.possible_scores())
-    # dh1 = DiceHand(5,5,5)
-    # print(dh1._all_duplicate_possible_scores(DiceHand(5,5,5)))
+    # dh1 = DiceHand(1,1,5)
+    # print(dh1.possible_scores())
+    # dh1 = DiceHand(1,1,1)
+    # dh2 = dh1.copy()
+    # print(dh1._all_duplicate_possible_scores(dh2), end='\n\n')
+    # print(dh1._all_duplicate_possible_scores_updated(dh2))
+    # print(dh1.possible_scores(), end='\n\n')
+    # print(dh1.possible_scores_updated())
     # for sh in SCORING_HANDS:
     #     print(sh)
+
+    random.seed(123)
+    num = 1000
+    roll_list = [[random.randrange(1, 7) for i in range(6)] for j in range(num)]
+
+    t0 = perf_counter()
+    for r in roll_list:
+        DiceHand(r).possible_scores()
+        # DiceHand(r)._all_duplicate_possible_scores(DiceHand(r))
+    t1 = perf_counter()
+    print(f'old version: {(t1-t0)} seconds, avg {(t1-t0) / num} per')
+
+    t0 = perf_counter()
+    for r in roll_list:
+        DiceHand(r).possible_scores_updated()
+        # DiceHand(r)._all_duplicate_possible_scores_updated(DiceHand(r))
+    t1 = perf_counter()
+    print(f'new version: {(t1 - t0)} seconds, avg {(t1 - t0) / num} per')
+    """
+    old version: 22.39019553901744 seconds, avg 0.02239019553901744 per
+    new version: 12.635960016021272 seconds, avg 0.012635960016021273 per
+    """
