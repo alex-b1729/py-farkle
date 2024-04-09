@@ -284,61 +284,9 @@ class DiceHand(object):
             dice_self.lock_from_dicehand(dice_other)
         return count
 
-    def _all_duplicate_possible_scores(self, dice_hand) -> list:
+    def _all_duplicate_possible_scores(self, dice_hand, ps_list: list = []) -> list:
         """returns list of DiceHands representing all possible subsets of
         dice_hand dice that can be scored - but includes duplicates"""
-        # TODO: This is so inefficient and is far too repetitive
-        search_dh = dice_hand.copy()
-        scoring_options = []
-
-        for sh in SCORING_HANDS:
-            # print(sh)
-            # how many times does the scoring hand occur?
-            count = search_dh.count(sh)
-            # print('occurs', count)
-            # if count > 0: print('found!\n')
-            # else: print('not found...\n')
-            for i in range(count):
-                this_score = sh.score * (i + 1)
-                # print('this_score', this_score)
-                scoring_dh = search_dh.copy()
-                scoring_option_dh = DiceHand(sh.dice_values() * (i + 1))
-                # print('scoring_option_dh', scoring_option_dh)
-                scoring_option_dh.score += this_score
-                # print('scoring_option_dh after', scoring_option_dh)
-
-                scoring_options.append(scoring_option_dh)
-
-                # print(scoring_option_dh)
-                scoring_dh.lock_from_dicehand(scoring_option_dh)
-
-                if not scoring_dh.all_locked:
-                    # recursively find remaining scoring options
-                    remaining_scoring_options: list = self._all_duplicate_possible_scores(scoring_dh)
-                    # print(remaining_scoring_options)
-
-                    for dh in remaining_scoring_options:
-                        potential_add_dh = scoring_option_dh + dh
-                        if potential_add_dh not in scoring_options:
-                            scoring_options.append(potential_add_dh)
-                else:
-                    break
-                    # return scoring_options
-
-        return scoring_options
-
-    def possible_scores(self) -> list:
-        """returns list of DiceHands representing all possible subsets of
-        dice_hand dice that can be scored """
-        dice_hand = self.copy()
-        duplicate_possible_scores = self._all_duplicate_possible_scores(dice_hand)
-        ps = []
-        for dh in duplicate_possible_scores:
-            if dh not in ps: ps.append(dh)
-        return ps
-
-    def _all_duplicate_possible_scores_updated(self, dice_hand, ps_list: list = []) -> list:
-        """trynna make this logic faster"""
         search_dh = dice_hand.copy()
         possible_score_list = []
         for sh in SCORING_HANDS:
@@ -346,8 +294,8 @@ class DiceHand(object):
         for ps in possible_score_list:
             new_search_dh = search_dh.copy()
             new_search_dh.lock_from_dicehand(ps)
-            additional_possible_score_list = self._all_duplicate_possible_scores_updated(new_search_dh,
-                                                                                         possible_score_list)
+            additional_possible_score_list = self._all_duplicate_possible_scores(new_search_dh,
+                                                                                 possible_score_list)
             for aps in additional_possible_score_list:
                 ps_sum = ps + aps
                 # this check speeds it up ~2x
@@ -355,8 +303,10 @@ class DiceHand(object):
                     possible_score_list.append(ps_sum)
         return possible_score_list
 
-    def possible_scores_updated(self):
-        return list(set(self._all_duplicate_possible_scores_updated(self.copy())))
+    def possible_scores(self) -> list:
+        """Returns list of DiceHand objects representing all possible
+        scoring hands of self"""
+        return list(set(self._all_duplicate_possible_scores(self.copy())))
 
     @property
     def farkled(self) -> bool:
@@ -425,6 +375,7 @@ class Turn:
 
 
 if __name__ == '__main__':
+    pass
     # dh1 = DiceHand(1,1,5)
     # print(dh1.possible_scores())
     # dh1 = DiceHand(1,1,1)
@@ -435,25 +386,3 @@ if __name__ == '__main__':
     # print(dh1.possible_scores_updated())
     # for sh in SCORING_HANDS:
     #     print(sh)
-
-    random.seed(123)
-    num = 1000
-    roll_list = [[random.randrange(1, 7) for i in range(6)] for j in range(num)]
-
-    t0 = perf_counter()
-    for r in roll_list:
-        DiceHand(r).possible_scores()
-        # DiceHand(r)._all_duplicate_possible_scores(DiceHand(r))
-    t1 = perf_counter()
-    print(f'old version: {(t1-t0)} seconds, avg {(t1-t0) / num} per')
-
-    t0 = perf_counter()
-    for r in roll_list:
-        DiceHand(r).possible_scores_updated()
-        # DiceHand(r)._all_duplicate_possible_scores_updated(DiceHand(r))
-    t1 = perf_counter()
-    print(f'new version: {(t1 - t0)} seconds, avg {(t1 - t0) / num} per')
-    """
-    old version: 22.39019553901744 seconds, avg 0.02239019553901744 per
-    new version: 12.635960016021272 seconds, avg 0.012635960016021273 per
-    """
