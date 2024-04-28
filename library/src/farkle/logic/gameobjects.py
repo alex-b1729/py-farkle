@@ -316,7 +316,7 @@ class DiceHand(object):
     def score_from_dicehand(self, dice_hand):
         """add score and locks corresponding dice"""
         assert dice_hand in self
-        self.score += dice_hand.score
+        # self.score += dice_hand.score  # done in self.lock_from_dicehand
         self.lock_from_dicehand(dice_hand)
 
 
