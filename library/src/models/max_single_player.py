@@ -1,9 +1,9 @@
 import math
 import random
-# import gymnasium
 import matplotlib
 from itertools import count
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
 from collections import namedtuple, deque
 
 import torch
@@ -49,9 +49,6 @@ plt.ion()
 # if GPU is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
-
 
 class ReplayMemory(object):
     def __init__(self, capacity):
@@ -69,11 +66,15 @@ class ReplayMemory(object):
 
 
 class DQN(nn.Module):
-    def __init__(self, n_observations, n_actions=1):
+    def __init__(self, n_in_features: int = 2, n_out_features: int = 1):
+        """
+        2 inputs: current score and number of dice
+        remaining if choose a particular possible score
+        """
         super(DQN, self).__init__()
-        self.layer1 = nn.Linear(n_observations, 128)
+        self.layer1 = nn.Linear(n_in_features, 128)
         self.layer2 = nn.Linear(128, 128)
-        self.layer3 = nn.Linear(128, n_actions)
+        self.layer3 = nn.Linear(128, n_out_features)
 
     # Called with either one element to determine next action, or a batch
     # during optimization. Returns tensor([[left0exp,right0exp]...]).
@@ -91,38 +92,137 @@ class DQN(nn.Module):
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
 BATCH_SIZE = 128
-GAMMA = 0.99
-EPS_START = 0.9
-EPS_END = 0.05
+GAMMA = 1  # not discounting since there's a definite, eventual end to every turn
+EPS_PS_START = 0.9  # whether to choose the estimated max possible score
+EPS_PS_END = 0.05
+EPS_ROLL_START = 0.9  # whether to roll again regardless if recommended by est max ps
+EPS_ROLL_END = 0.05
 EPS_DECAY = 1000
 TAU = 0.005
 LR = 1e-4
 
-# Get number of actions from gym action space
-# n_actions = env.action_space.n
-n_actions = 2  # re-roll or don't
-# Get the number of state observations
-
+# todo: init state and other stuff here
 # state passed directly into nn
 # state = torch.tensor([score, remaining_dice])
 # although state is used like a iter of states in select_action function
-# info? isn't used in tutorial
-state, info = env.reset()
+# What's info? isn't used in tutorial
+# state, info = env.reset()
 # n_observations = len(state)
 n_observations = 2  # score, remaining dice count
 
-policy_net = DQN(n_observations, n_actions).to(device)
-target_net = DQN(n_observations, n_actions).to(device)
+policy_net = DQN().to(device)
+target_net = DQN().to(device)
 target_net.load_state_dict(policy_net.state_dict())
 
+
+def evaluate_expected_scores(state_list: list[torch.tensor]) -> list:
+    with torch.no_grad():
+        E_scores = [policy_net(state) for state in state_list]
+    return E_scores
+
+
+def select_possible_score(ps_list: list, E_scores: list) -> tuple[DiceHand, float]:
+    max_score_idx = E_scores.index(max(E_scores))
+    chosen_ps: DiceHand = ps_list[max_score_idx]
+    E_score: float = E_scores[max_score_idx]
+    return chosen_ps, E_score
+
+
+def select_training_possible_score(dh: DiceHand) -> tuple[DiceHand, float]:
+    """
+    uses EPS_PS to determine whether to choose ps with max expected
+    future score or choose a random ps
+    """
+    global turns_done
+    sample = random.random()
+    eps_threshold = EPS_PS_END + (EPS_PS_START - EPS_PS_END) * \
+                    math.exp(-1. * turns_done / EPS_DECAY)
+    # turns_done += 1
+
+    ps_list = dh.possible_scores()
+    state_list = [torch.tensor([dh.score + ps.score, dh.num_dice - ps.num_dice],
+                               device=device, dtype=torch.long)
+                  for ps in ps_list]
+    E_scores = evaluate_expected_scores(state_list)
+
+    if sample > eps_threshold:  # use max possible score
+        return select_possible_score(ps_list, E_scores)
+    else:
+        random_idx = random.choice(range(len(ps_list)))
+        return ps_list[random_idx], E_scores[random_idx]
+
+
+def decide_will_roll_again(E_score: float) -> bool:
+    """roll again if positive expected future score"""
+    return E_score > 0
+
+
+def decide_training_will_roll_again(E_score: float) -> bool:
+    global turns_done
+    sample = random.random()
+    eps_threshold = EPS_PS_END + (EPS_PS_START - EPS_PS_END) * \
+                    math.exp(-1. * turns_done / EPS_DECAY)
+    if sample > eps_threshold:  # use roll if E_score > 0
+        return decide_will_roll_again(E_score)
+    else:
+        return random.choice([True, False])
+
+
+def select_action(dh: DiceHand) -> tuple[DiceHand, float]:
+    global turns_done  # idk where this needs to sit in the logic
+    chosen_ps, E_score = select_training_possible_score(dh)
+    will_roll_again = decide_training_will_roll_again(E_score)
+    turns_done += 1
+    return chosen_ps, will_roll_again
+
+
+TrainingState = namedtuple('TrainingState',
+                         ('score', 'num_dice_remaining'))
+
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+
+# State = namedtuple('State',
+#                    ('dice_hand', 'will_roll_again'))
+# State: just a DiceHand
+
+Action = namedtuple('State',
+                    ('possible_score', 'will_roll_again'))
+
+@dataclass(frozen=True)
+class FarkleAction:
+    possible_score: DiceHand
+    will_roll_again: bool
+
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(10000)
+memory = ReplayMemory(100)
+num_training_turns = 1000
+turns_done = 0
 
 
-steps_done = 0
+for turn_idx in range(num_training_turns):
+    dh = DiceHand()
+    will_roll_again = True
+    # memory.push(TrainingState(dh.score, len(dh.free_dice)))
+    while not dh.farkled and will_roll_again:
+        num_dice_remaining = len(dh.free_dice)
+        dh_pre = dh.copy()  # initial state
+        dh.roll()
+        dh_post = dh.copy()
+        
+        if not dh.farkled:
+            chosen_ps, will_roll_again = select_action(dh)
+            dh.lock_from_dicehand(chosen_ps)
+
+            reward = chosen_ps.score
+        else:
+            reward = -1 *
+
+            memory.push(TrainingState(dh.score, num_dice_remaining))
 
 
-def select_action(state: torch.tensor) -> torch.tensor:
+
+def _select_action(state: torch.tensor) -> torch.tensor:
     """should perform choice of dicehand like select_training_action
     except without the eps_threshold stuff"""
     # expected score if dice hand of each state is rolled
@@ -143,7 +243,7 @@ def select_action(state: torch.tensor) -> torch.tensor:
         # return max[s.score for s in state] and don't roll again
         pass
 
-def select_training_action(state) -> torch.tensor:
+def _select_training_action(state) -> torch.tensor:
     """chooses to use nn or random selection for next action"""
     global steps_done
     sample = random.random()
