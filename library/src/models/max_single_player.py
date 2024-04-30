@@ -186,8 +186,8 @@ Transition = namedtuple('Transition',
 #                    ('dice_hand', 'will_roll_again'))
 # State: just a DiceHand
 
-Action = namedtuple('State',
-                    ('possible_score', 'will_roll_again'))
+# Action = namedtuple('State',
+#                     ('possible_score', 'will_roll_again'))
 
 @dataclass(frozen=True)
 class FarkleAction:
@@ -201,25 +201,41 @@ turns_done = 0
 
 
 for turn_idx in range(num_training_turns):
-    dh = DiceHand()
+    dh = DiceHand()  # init as rolled dh
     will_roll_again = True
     # memory.push(TrainingState(dh.score, len(dh.free_dice)))
     while not dh.farkled and will_roll_again:
-        num_dice_remaining = len(dh.free_dice)
-        dh_pre = dh.copy()  # initial state
-        dh.roll()
-        dh_post = dh.copy()
-        
-        if not dh.farkled:
-            chosen_ps, will_roll_again = select_action(dh)
-            dh.lock_from_dicehand(chosen_ps)
+        # capture initial dh state
+        state_pre = TrainingState(score=dh.score,
+                                  num_dice_remaining=len(dh.free_dice))
 
-            reward = chosen_ps.score
-        else:
-            reward = -1 *
+        # choose action if not farkled
+        # but b/c we're in here we've already not farkled
+        # policy_net makes decision
+        chosen_ps, will_roll_again = select_action(dh)
+        # execute decision
+        dh.lock_from_dicehand(chosen_ps)
+        # save immediate reward of decision
+        reward = chosen_ps.score
 
-            memory.push(TrainingState(dh.score, num_dice_remaining))
+        score_post = dh.score
+        num_dice_remaining_post = len(dh.free_dice)
+        state_post = TrainingState(score=score_post,
+                                   num_dice_remaining=num_dice_remaining_post)
 
+        # save turn transition
+        # not saving action for now
+        memory.push(Transition(state_pre, None, state_post, reward))
+
+        if will_roll_again: dh.roll()
+
+    # finally if ended turn by farkle
+    if dh.farkled:
+        # capture final transition to farkle state
+        state_pre = state_post
+        state_post = None
+        reward = -1 * score_post
+        memory.push(Transition(state_pre, None, state_post, reward))
 
 
 def _select_action(state: torch.tensor) -> torch.tensor:
