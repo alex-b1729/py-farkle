@@ -1,6 +1,7 @@
 import copy
 import random
 import logging
+import numpy as np
 from typing import NamedTuple
 from time import perf_counter
 from dataclasses import dataclass
@@ -40,8 +41,8 @@ class DiceHand(object):
         When num_dice is not None, generates num_dice random die.
         When called with *args uses those values as values of dice.
         When args is a single list uses those values for dice.
-        If both num_dice is not None and args are passed, num_dice is ignored
-        and dice are generated using args.
+        When args is str of int use those as values for dice.
+        If both num_dice is not None and args are passed, num_dice is ignored.
         """
         # TODO: tempted to make self.dice = None unless self.roll() has been called
         # but not sure what this would affect in current code
@@ -52,6 +53,9 @@ class DiceHand(object):
             self.num_dice = len(args[0])
             self.dice = {i: GameDie(Die(args[0][i]))
                          for i in range(len(args[0]))}
+        elif len(args) == 1 and isinstance(args[0], str):
+            self.num_dice = len(args[0])
+            self.dice = {i: GameDie(Die(int(args[0][i]))) for i in range(self.num_dice)}
         else:  # len(args) > 1
             for i in args:
                 if not isinstance(i, int):
@@ -165,6 +169,14 @@ class DiceHand(object):
         return sorted([gd.die.value for gd in self.dice.values() if gd.locked])
 
     @property
+    def str_dice_values(self) -> str:
+        return ''.join(str(d) for d in self.dice_values())
+
+    @property
+    def str_dice_values_free(self) -> str:
+        return ''.join(str(d) for d in self.dice_values_free())
+
+    @property
     def free_dice(self):
         return {i: d for i, d in self.dice.items() if not d.locked}
 
@@ -216,7 +228,7 @@ class DiceHand(object):
         locked_loc = _repr.find('], locked=[')
         score_loc = _repr.find('], score=')
         end_start_loc = _repr.find(')')
-        free_dice_nums = [int(i) for i in _repr[free_loc+6: locked_loc].split(', ') if i != '']
+        free_dice_nums = [int(i) for i in _repr[free_loc + 6: locked_loc].split(', ') if i != '']
         locked_dice_nums = [int(i) for i in _repr[locked_loc + 11: score_loc].split(', ') if i != '']
         score = int(_repr[score_loc + 9: end_start_loc])
         dh = DiceHand(free_dice_nums + locked_dice_nums, score=score)
@@ -267,7 +279,7 @@ class DiceHand(object):
                     d_count += 1
             # if didnt_find still false
             # means found all comparison dice in self
-            if not didnt_find: # and self.score == dice_compare.score:
+            if not didnt_find:  # and self.score == dice_compare.score:
                 is_contained = True
         return is_contained
 
@@ -284,29 +296,48 @@ class DiceHand(object):
             dice_self.lock_from_dicehand(dice_other)
         return count
 
-    def _all_duplicate_possible_scores(self, dice_hand, ps_list: list = []) -> list:
-        """returns list of DiceHands representing all possible subsets of
-        dice_hand dice that can be scored - but includes duplicates"""
-        search_dh = dice_hand.copy()
-        possible_score_list = []
-        for sh in SCORING_HANDS:
-            if sh in search_dh: possible_score_list.append(sh)
-        for ps in possible_score_list:
-            new_search_dh = search_dh.copy()
-            new_search_dh.lock_from_dicehand(ps)
-            additional_possible_score_list = self._all_duplicate_possible_scores(new_search_dh,
-                                                                                 possible_score_list)
-            for aps in additional_possible_score_list:
-                ps_sum = ps + aps
-                # this check speeds it up ~2x
-                if ps_sum not in ps_list + possible_score_list:
-                    possible_score_list.append(ps_sum)
-        return possible_score_list
+    def _duplicate_possible_scores(self, dice_count_list: list[int]) -> tuple[list, list]:
+        return_ps_list = []
+        return_score_list = []
+        for die_idx in range(6):
+            dc = dice_count_list[die_idx]
+            if dc >= min(SCORING_HANDS_DICT[die_idx + 1].keys()):
+                this_ps_list = []
+                this_score_list = []
+                for dice_score_count in SCORING_HANDS_DICT[die_idx + 1]:
+                    if dc >= dice_score_count:
+                        this_ps = np.array([0 for _ in range(6)])
+                        this_score = SCORING_HANDS_DICT[die_idx + 1][dice_score_count]
+                        this_ps[die_idx] = dice_score_count
+                        remaining_count = dc - dice_score_count
+                        remaining_dice_count_list = [i for i in dice_count_list]
+                        remaining_dice_count_list[die_idx] = remaining_count
+
+                        remaining_ps_list, remaining_score_list = self._duplicate_possible_scores(
+                            remaining_dice_count_list)
+
+                        combined_ps_list = [this_ps + r_ps for r_ps in remaining_ps_list]
+                        combined_score_list = [this_score + s for s in remaining_score_list]
+
+                        combined_ps_list = [this_ps] + remaining_ps_list + combined_ps_list
+                        combined_score_list = [this_score] + remaining_score_list + combined_score_list
+
+                        this_ps_list += combined_ps_list
+                        this_score_list += combined_score_list
+
+                return_ps_list += this_ps_list
+                return_score_list += this_score_list
+                return return_ps_list, return_score_list
+
+        return [], []
 
     def possible_scores(self) -> list:
-        """Returns list of DiceHand objects representing all possible
-        scoring hands of self"""
-        return list(set(self._all_duplicate_possible_scores(self.copy())))
+        dice_count_list = [self.str_dice_values_free.count(str(i)) for i in range(1, 7)]
+        hands, scores = self._duplicate_possible_scores(dice_count_list)
+        # hand_strs = [''.join([str(d + 1) * int(c) for d, c in enumerate(hand)]) for hand in hands]
+        ps_set = {''.join(ps.astype(str)) + str(s) for ps, s in list(zip(hands, scores))}
+        return [DiceHand(''.join([str(d + 1) * int(c) for d, c in enumerate(s[:5])]),
+                         score=int(s[5:])) for s in ps_set]
 
     @property
     def farkled(self) -> bool:
@@ -333,6 +364,13 @@ SCORING_HANDS = (
     , DiceHand(6, 6, 6, score=600)
 
 )
+
+SCORING_HANDS_DICT = {1: {1: 100, 3: 1000},
+                      2: {3: 200},
+                      3: {3: 300},
+                      4: {3: 400},
+                      5: {1: 50, 3: 500},
+                      6: {3: 600}}
 
 
 @dataclass(frozen=True)
@@ -376,7 +414,10 @@ class Turn:
 
 if __name__ == '__main__':
     pass
-    # dh1 = DiceHand(1,1,5)
+    # dh1 = DiceHand(1, 1, 5)
+    # dh1 = DiceHand('123456')
+    # print(dh1)
+    # print(dh1.str_dice_values_free)
     # print(dh1.possible_scores())
     # dh1 = DiceHand(1,1,1)
     # dh2 = dh1.copy()
