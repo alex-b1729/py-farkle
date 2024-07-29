@@ -56,13 +56,20 @@ class ReplayMemory(object):
 
     def push(self, *args):
         """Save a transition"""
-        self.memory.append(Transition(*args))
+        self.memory.append(*args)
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
 
     def __len__(self):
         return len(self.memory)
+
+    def __repr__(self):
+        s = 'memory(\n'
+        for i in list(self.memory)[:10]:
+            s += f'\t{i}\n'
+        s += ')'
+        return s
 
 
 class DQN(nn.Module):
@@ -146,10 +153,12 @@ def select_training_possible_score(dh: DiceHand) -> tuple[DiceHand, float]:
     # turns_done += 1
 
     ps_list = dh.possible_scores()
+    print(ps_list)
     states = torch.tensor([[int(dh.score + ps.score),
-                            dice_remaining_convert(dh.num_dice - ps.num_dice)]
+                            dice_remaining_convert(len(dh.dice_values_free()) - ps.num_dice)]
                            for ps in ps_list],
-                          device=device, dtype=torch.long)
+                          device=device, dtype=torch.float32)
+    print(states)
     E_scores = evaluate_expected_scores(states)
 
     if sample > eps_threshold:  # use max possible score
@@ -213,13 +222,14 @@ for turn_idx in range(NUM_TRAINING_TURNS):
         # state_pre = TrainingState(score=dh.score,
         #                           num_dice_remaining=len(dh.free_dice))
         state_pre = state_post
-        print(state_pre)
+        print(f'state pre: {state_pre}')
 
         # choose action if not farkled
         # but b/c we're in this loop we've already not farkled
         # policy_net makes decision
         chosen_ps, will_roll_again = select_action(dh)
-        print('Chosen ps:', chosen_ps, '\n', 'will roll again', will_roll_again)
+        print('Chosen ps:', chosen_ps)
+        print('Will roll again:', will_roll_again)
         # execute decision
         dh.lock_from_dicehand(chosen_ps)
         # save immediate reward of decision
@@ -233,17 +243,35 @@ for turn_idx in range(NUM_TRAINING_TURNS):
 
         # save turn transition
         # action is whether to roll or not
-        memory.push(Transition(state_pre, will_roll_again, state_post, reward))
+        memory.push(
+            Transition(
+                state=state_pre,
+                action=will_roll_again,
+                next_state=state_post,
+                reward=reward
+            )
+        )
 
-        if will_roll_again: dh.roll()
+        if will_roll_again:
+            dh.roll()
+            print(f'roll again result: {dh}')
 
     # finally if ended turn by farkle
-    if dh.farkled:
+    # `and will_roll_again` necessary since locking dice then choosing to not
+    # roll again can cause dh.farkled == True
+    if dh.farkled and will_roll_again:
         # capture final transition to farkle state
         state_pre = state_post
         state_post = None
         reward = -1 * score_post
-        memory.push(Transition(state_pre, True, state_post, reward))
+        memory.push(
+            Transition(
+                state=state_pre,
+                action=True,  # bc if farkled there was the intent to roll again
+                next_state=state_post,
+                reward=reward
+            )
+        )
 
 print(memory)
 
@@ -253,7 +281,7 @@ episode_scores = []
 def plot_scores(show_result=False):
     """plots score of dice turns in training"""
     plt.figure(1)
-    durations_t = torch.tensor(episode_scores, dtype=torch.float)
+    durations_t = torch.tensor(episode_scores, dtype=torch.float32)
     if show_result:
         plt.title('Result')
     else:
