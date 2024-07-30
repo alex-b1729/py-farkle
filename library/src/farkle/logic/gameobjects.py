@@ -297,6 +297,8 @@ class DiceHand(object):
         return count
 
     def _duplicate_possible_scores(self, dice_count_list: list[int]) -> tuple[list, list]:
+        """dice_count_list gives count of dice with value of that index.
+        E.g. [2,0,1,0,2,0] is a dice had with free dice [1,1,3,5,5]"""
         return_ps_list = []
         return_score_list = []
         for die_idx in range(6):
@@ -331,13 +333,27 @@ class DiceHand(object):
 
         return [], []
 
-    def possible_scores(self) -> list:
+    def all_possible_scores(self) -> list:
         dice_count_list = [self.str_dice_values_free.count(str(i)) for i in range(1, 7)]
         hands, scores = self._duplicate_possible_scores(dice_count_list)
         # hand_strs = [''.join([str(d + 1) * int(c) for d, c in enumerate(hand)]) for hand in hands]
         ps_set = {''.join(ps.astype(str)) + str(s) for ps, s in list(zip(hands, scores))}
         return [DiceHand(''.join([str(d + 1) * int(c) for d, c in enumerate(s[:5])]),
                          score=int(s[5:])) for s in ps_set]
+
+    def possible_scores(self) -> list:
+        dice_count_list = [self.str_dice_values_free.count(str(i)) for i in range(1, 7)]
+        hands, scores = self._duplicate_possible_scores(dice_count_list)
+        numdie = [a.sum() for a in hands]
+
+        zipped_pss = list(zip(numdie, hands, scores))
+        str_pss = [str(nd) + str(s).zfill(4) + ''.join(ps.astype(str)) for nd, ps, s in zipped_pss]
+        str_pss.sort()
+
+        nd_points_and_dh_dict = {int(s[0]): s[1:] for s in str_pss}
+
+        return [DiceHand(''.join([str(d + 1) * int(c) for d, c in enumerate(s[-6:])]), score=int(s[:4]))
+                for nd, s in nd_points_and_dh_dict.items()]
 
     @property
     def farkled(self) -> bool:
