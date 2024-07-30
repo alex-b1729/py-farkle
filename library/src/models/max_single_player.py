@@ -137,6 +137,7 @@ def select_possible_score(ps_list: list, E_scores: torch.tensor) -> tuple[DiceHa
     max_score_idx = E_scores.argmax()
     chosen_ps: DiceHand = ps_list[max_score_idx]
     E_score: float = E_scores[max_score_idx]
+    if VERBOSE: print(f'choose ps with max E[score] = {E_score}')
     return chosen_ps, E_score
 
 
@@ -153,24 +154,31 @@ def select_training_possible_score(dh: DiceHand) -> tuple[DiceHand, float]:
     # turns_done += 1
 
     ps_list = dh.possible_scores()
-    print(ps_list)
+    if VERBOSE: print(ps_list)
     states = torch.tensor([[int(dh.score + ps.score),
                             dice_remaining_convert(len(dh.dice_values_free()) - ps.num_dice)]
                            for ps in ps_list],
                           device=device, dtype=torch.float32)
-    print(states)
+    if VERBOSE:
+        print('states:')
+        print(states)
     E_scores = evaluate_expected_scores(states)
+    if VERBOSE:
+        print('with E[scores]:')
+        print(E_scores)
 
     if sample > eps_threshold:  # use max possible score
         return select_possible_score(ps_list, E_scores)
     else:
+        if VERBOSE: print('select random ps')
         random_idx = random.choice(range(len(ps_list)))
         return ps_list[random_idx], E_scores[random_idx]
 
 
 def decide_will_roll_again(E_score: float) -> bool:
     """roll again if positive expected future score"""
-    return E_score > 0
+    if VERBOSE: print(f'decide to roll based on E_score > 0: {E_score > 0}')
+    return bool(E_score > 0)
 
 
 def decide_training_will_roll_again(E_score: float) -> bool:
@@ -181,6 +189,7 @@ def decide_training_will_roll_again(E_score: float) -> bool:
     if sample > eps_threshold:  # use roll if E_score > 0
         return decide_will_roll_again(E_score)
     else:
+        if VERBOSE: print('select random roll again')
         return random.choice([True, False])
 
 
@@ -197,7 +206,7 @@ TrainingState = namedtuple('TrainingState',
                            ('score', 'num_dice_remaining'))
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+                        ('state', 'roll_again', 'next_state', 'reward'))
 
 
 @dataclass(frozen=True)
@@ -208,12 +217,14 @@ class FarkleAction:
 
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
 memory = ReplayMemory(100)
-NUM_TRAINING_TURNS = 1
+NUM_TRAINING_TURNS = 10
 TURNS_COMPLETE = 0
+VERBOSE = False
 
 for turn_idx in range(NUM_TRAINING_TURNS):
+    if VERBOSE: print(f'\n----- turn {turn_idx} -----')
     dh = DiceHand()  # init as rolled dh
-    print(dh)
+    if VERBOSE: print(dh)
     will_roll_again = True
     score_post = dh.score
     state_post = TrainingState(score=score_post, num_dice_remaining=len(dh.free_dice))
@@ -222,31 +233,32 @@ for turn_idx in range(NUM_TRAINING_TURNS):
         # state_pre = TrainingState(score=dh.score,
         #                           num_dice_remaining=len(dh.free_dice))
         state_pre = state_post
-        print(f'state pre: {state_pre}')
+        if VERBOSE: print(f'state pre: {state_pre}')
 
         # choose action if not farkled
         # but b/c we're in this loop we've already not farkled
         # policy_net makes decision
         chosen_ps, will_roll_again = select_action(dh)
-        print('Chosen ps:', chosen_ps)
-        print('Will roll again:', will_roll_again)
+        if VERBOSE:
+            print('Chosen ps:', chosen_ps)
+            print('Will roll again:', will_roll_again)
         # execute decision
         dh.lock_from_dicehand(chosen_ps)
         # save immediate reward of decision
         reward = chosen_ps.score
-        print('reward:', reward)
+        if VERBOSE: print('reward:', reward)
         score_post = dh.score
         num_dice_remaining_post = len(dh.free_dice)
         state_post = TrainingState(score=score_post,
                                    num_dice_remaining=num_dice_remaining_post)
-        print('state post', state_post)
+        if VERBOSE: print('state post', state_post)
 
         # save turn transition
         # action is whether to roll or not
         memory.push(
             Transition(
                 state=state_pre,
-                action=will_roll_again,
+                roll_again=will_roll_again,
                 next_state=state_post,
                 reward=reward
             )
@@ -254,12 +266,13 @@ for turn_idx in range(NUM_TRAINING_TURNS):
 
         if will_roll_again:
             dh.roll()
-            print(f'roll again result: {dh}')
+            if VERBOSE: print(f'roll again result: {dh}')
 
     # finally if ended turn by farkle
     # `and will_roll_again` necessary since locking dice then choosing to not
     # roll again can cause dh.farkled == True
     if dh.farkled and will_roll_again:
+        if VERBOSE: print('farkled')
         # capture final transition to farkle state
         state_pre = state_post
         state_post = None
@@ -267,13 +280,13 @@ for turn_idx in range(NUM_TRAINING_TURNS):
         memory.push(
             Transition(
                 state=state_pre,
-                action=True,  # bc if farkled there was the intent to roll again
+                roll_again=True,  # bc if farkled there was the intent to roll again
                 next_state=state_post,
                 reward=reward
             )
         )
 
-print(memory)
+if VERBOSE: print(memory)
 
 episode_scores = []
 
