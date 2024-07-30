@@ -99,7 +99,7 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 128
+BATCH_SIZE = 4 # 128
 GAMMA = 1  # not discounting since there's a definite, eventual end to every turn
 EPS_PS_START = 0.9  # whether to choose the estimated max possible score
 EPS_PS_END = 0.05
@@ -137,7 +137,7 @@ def select_possible_score(ps_list: list, E_scores: torch.tensor) -> tuple[DiceHa
     max_score_idx = E_scores.argmax()
     chosen_ps: DiceHand = ps_list[max_score_idx]
     E_score: float = E_scores[max_score_idx]
-    if VERBOSE: print(f'choose ps with max E[score] = {E_score}')
+    if VERBOSE: print(f'choose ps with max E[future score] = {E_score}')
     return chosen_ps, E_score
 
 
@@ -164,7 +164,7 @@ def select_training_possible_score(dh: DiceHand) -> tuple[DiceHand, float]:
         print(states)
     E_scores = evaluate_expected_scores(states)
     if VERBOSE:
-        print('with E[scores]:')
+        print('with E[future score]:')
         print(E_scores)
 
     if sample > eps_threshold:  # use max possible score
@@ -177,7 +177,7 @@ def select_training_possible_score(dh: DiceHand) -> tuple[DiceHand, float]:
 
 def decide_will_roll_again(E_score: float) -> bool:
     """roll again if positive expected future score"""
-    if VERBOSE: print(f'decide to roll based on E_score > 0: {E_score > 0}')
+    if VERBOSE: print(f'decide to roll based on E[future score] > 0: {E_score > 0}')
     return bool(E_score > 0)
 
 
@@ -190,7 +190,7 @@ def decide_training_will_roll_again(E_score: float) -> bool:
         return decide_will_roll_again(E_score)
     else:
         if VERBOSE: print('select random roll again')
-        return random.choice([True, False])
+        return random.choice([True]) #, False])
 
 
 def select_action(dh: DiceHand) -> tuple[DiceHand, float]:
@@ -205,6 +205,7 @@ def select_action(dh: DiceHand) -> tuple[DiceHand, float]:
 TrainingState = namedtuple('TrainingState',
                            ('score', 'num_dice_remaining'))
 
+# todo: don't think I need to record roll_again for use anywhere
 Transition = namedtuple('Transition',
                         ('state', 'roll_again', 'next_state', 'reward'))
 
@@ -215,11 +216,78 @@ class FarkleAction:
     will_roll_again: bool
 
 
+def optimize_model():
+    if len(MEMORY) < BATCH_SIZE:
+        return
+    transitions = MEMORY.sample(BATCH_SIZE)
+    # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
+    # detailed explanation). This converts batch-array of Transitions
+    # to Transition of batch-arrays.
+    batch = Transition(*zip(*transitions))
+    print(batch)
+
+    # Compute a mask of non-final states and concatenate the batch elements
+    non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+                                            batch.next_state)), device=device, dtype=torch.bool)
+    # non_final_next_states = torch.tensor([[s.score, s.num_dice_remaining] for s in batch.next_state if s is not None],
+    #                                      device=device, dtype=torch.float32)
+    non_final_next_states = torch.tensor(
+        [[s.score, s.num_dice_remaining] if s is not None else [0, 0]
+         for s in batch.next_state],
+        device=device, dtype=torch.float32
+    )
+    with torch.no_grad():
+        target_net_E_scores = target_net(non_final_next_states)
+    print(non_final_next_states)
+    print(f'target_net_e_scores\n{target_net_E_scores}')
+
+    reward_batch = torch.tensor([[r] for r in batch.reward], device=device, dtype=torch.float32)
+    print(f'reward batch\n{reward_batch}')
+
+    y = reward_batch
+    y[non_final_mask] += target_net_E_scores[non_final_mask]
+    print(f'y\n{y}')
+
+    state_batch = torch.tensor([[s.score, s.num_dice_remaining] for s in batch.state],
+                               device=device, dtype=torch.float32)
+    # print(state_batch)
+
+
+
+    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
+    # columns of actions taken. These are the actions which would've been taken
+    # for each batch state according to policy_net
+    # state_action_values = policy_net(state_batch).gather(1, action_batch)
+    state_e_scores: torch.tensor = policy_net(state_batch)
+
+    # # Compute V(s_{t+1}) for all next states.
+    # # Expected values of actions for non_final_next_states are computed based
+    # # on the "older" target_net; selecting their best reward with max(1).values
+    # # This is merged based on the mask, such that we'll have either the expected
+    # # state value or 0 in case the state was final.
+    # next_state_values = torch.zeros(BATCH_SIZE, device=device)
+    # with torch.no_grad():
+    #     next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
+    # # Compute the expected Q values
+    # expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+    #
+    # # Compute Huber loss
+    # criterion = nn.SmoothL1Loss()
+    # loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+    #
+    # # Optimize the model
+    # optimizer.zero_grad()
+    # loss.backward()
+    # # In-place gradient clipping
+    # torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
+    # optimizer.step()
+
+
 optimizer = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-memory = ReplayMemory(100)
-NUM_TRAINING_TURNS = 10
+MEMORY = ReplayMemory(100)
+NUM_TRAINING_TURNS = 2
 TURNS_COMPLETE = 0
-VERBOSE = False
+VERBOSE = True
 
 for turn_idx in range(NUM_TRAINING_TURNS):
     if VERBOSE: print(f'\n----- turn {turn_idx} -----')
@@ -227,11 +295,9 @@ for turn_idx in range(NUM_TRAINING_TURNS):
     if VERBOSE: print(dh)
     will_roll_again = True
     score_post = dh.score
-    state_post = TrainingState(score=score_post, num_dice_remaining=len(dh.free_dice))
+    state_post = TrainingState(score=score_post, num_dice_remaining=dice_remaining_convert(len(dh.free_dice)))
     while not dh.farkled and will_roll_again:
         # capture initial dh state
-        # state_pre = TrainingState(score=dh.score,
-        #                           num_dice_remaining=len(dh.free_dice))
         state_pre = state_post
         if VERBOSE: print(f'state pre: {state_pre}')
 
@@ -248,14 +314,13 @@ for turn_idx in range(NUM_TRAINING_TURNS):
         reward = chosen_ps.score
         if VERBOSE: print('reward:', reward)
         score_post = dh.score
-        num_dice_remaining_post = len(dh.free_dice)
+        num_dice_remaining_post = dice_remaining_convert(len(dh.free_dice))
         state_post = TrainingState(score=score_post,
                                    num_dice_remaining=num_dice_remaining_post)
         if VERBOSE: print('state post', state_post)
 
         # save turn transition
-        # action is whether to roll or not
-        memory.push(
+        MEMORY.push(
             Transition(
                 state=state_pre,
                 roll_again=will_roll_again,
@@ -265,7 +330,10 @@ for turn_idx in range(NUM_TRAINING_TURNS):
         )
 
         if will_roll_again:
-            dh.roll()
+            if dh.all_locked:
+                dh.roll_all_dice()
+            else:
+                dh.roll()
             if VERBOSE: print(f'roll again result: {dh}')
 
     # finally if ended turn by farkle
@@ -277,7 +345,7 @@ for turn_idx in range(NUM_TRAINING_TURNS):
         state_pre = state_post
         state_post = None
         reward = -1 * score_post
-        memory.push(
+        MEMORY.push(
             Transition(
                 state=state_pre,
                 roll_again=True,  # bc if farkled there was the intent to roll again
@@ -286,7 +354,9 @@ for turn_idx in range(NUM_TRAINING_TURNS):
             )
         )
 
-if VERBOSE: print(memory)
+    optimize_model()
+
+if VERBOSE: print(MEMORY)
 
 episode_scores = []
 
@@ -316,51 +386,3 @@ def plot_scores(show_result=False):
             display.clear_output(wait=True)
         else:
             display.display(plt.gcf())
-
-
-# def optimize_model():
-#     if len(memory) < BATCH_SIZE:
-#         return
-#     transitions = memory.sample(BATCH_SIZE)
-#     # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-#     # detailed explanation). This converts batch-array of Transitions
-#     # to Transition of batch-arrays.
-#     batch = Transition(*zip(*transitions))
-#
-#     # Compute a mask of non-final states and concatenate the batch elements
-#     # (a final state would've been the one after which simulation ended)
-#     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-#                                             batch.next_state)), device=device, dtype=torch.bool)
-#     non_final_next_states = torch.cat([s for s in batch.next_state
-#                                        if s is not None])
-#     state_batch = torch.cat(batch.state)
-#     action_batch = torch.cat(batch.action)
-#     reward_batch = torch.cat(batch.reward)
-#
-#     # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-#     # columns of actions taken. These are the actions which would've been taken
-#     # for each batch state according to policy_net
-#     # state_action_values = policy_net(state_batch).gather(1, action_batch)
-#     state_e_score_values: torch.tensor = policy_net(state_batch).gather(1, action_batch)
-#
-#     # Compute V(s_{t+1}) for all next states.
-#     # Expected values of actions for non_final_next_states are computed based
-#     # on the "older" target_net; selecting their best reward with max(1).values
-#     # This is merged based on the mask, such that we'll have either the expected
-#     # state value or 0 in case the state was final.
-#     next_state_values = torch.zeros(BATCH_SIZE, device=device)
-#     with torch.no_grad():
-#         next_state_values[non_final_mask] = target_net(non_final_next_states).max(1).values
-#     # Compute the expected Q values
-#     expected_state_action_values = (next_state_values * GAMMA) + reward_batch
-#
-#     # Compute Huber loss
-#     criterion = nn.SmoothL1Loss()
-#     loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
-#
-#     # Optimize the model
-#     optimizer.zero_grad()
-#     loss.backward()
-#     # In-place gradient clipping
-#     torch.nn.utils.clip_grad_value_(policy_net.parameters(), 100)
-#     optimizer.step()
