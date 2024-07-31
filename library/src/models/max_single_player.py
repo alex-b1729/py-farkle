@@ -66,7 +66,7 @@ class ReplayMemory(object):
 
     def __repr__(self):
         s = 'memory(\n'
-        for i in list(self.memory)[:10]:
+        for i in list(self.memory):
             s += f'\t{i}\n'
         s += ')'
         return s
@@ -77,7 +77,7 @@ class DQN(nn.Module):
         """
         2 inputs: current score and number of dice
         remaining if choose a particular possible score
-        1 output: expected future ??? score under policy
+        1 output: expected future score under policy
         """
         super(DQN, self).__init__()
         self.layer1 = nn.Linear(n_in_features, 128)
@@ -99,7 +99,7 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 128
+BATCH_SIZE = 4
 GAMMA = 1  # not discounting since there's a definite, eventual end to every turn
 EPS_PS_START = 0.9  # whether to choose the estimated max possible score
 EPS_PS_END = 0.05
@@ -190,10 +190,10 @@ def decide_training_will_roll_again(E_score: float) -> bool:
         return decide_will_roll_again(E_score)
     else:
         if VERBOSE: print('select random roll again')
-        return random.random() < 0.7  # 70% of time choose to roll again
+        return random.random() < 0.9  # 70% of time choose to roll again
 
 
-def select_action(dh: DiceHand) -> tuple[DiceHand, float]:
+def select_action(dh: DiceHand) -> tuple[DiceHand, bool]:
     """chooses possible score and whether to roll again"""
     global TURNS_COMPLETE  # idk where this needs to sit in the logic
     chosen_ps, E_score = select_training_possible_score(dh)
@@ -224,13 +224,11 @@ def optimize_model():
     # detailed explanation). This converts batch-array of Transitions
     # to Transition of batch-arrays.
     batch = Transition(*zip(*transitions))
-    # print(batch)
+    if VERBOSE: print(batch)
 
     # Compute a mask of non-final states and concatenate the batch elements
     non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                             batch.next_state)), device=device, dtype=torch.bool)
-    # non_final_next_states = torch.tensor([[s.score, s.num_dice_remaining] for s in batch.next_state if s is not None],
-    #                                      device=device, dtype=torch.float32)
     next_states = torch.tensor(
         [[s.score, s.num_dice_remaining] if s is not None else [0, 0]
          for s in batch.next_state],
@@ -238,21 +236,25 @@ def optimize_model():
     )
     with torch.no_grad():
         target_E_scores = target_net(next_states)
-    # print(next_states)
-    # print(f'target_net_e_scores\n{target_E_scores}')
 
     reward_batch = torch.tensor([[r] for r in batch.reward], device=device, dtype=torch.float32)
-    # print(f'reward batch\n{reward_batch}')
 
     y = reward_batch
     # this is where i'd discount with GAMMA
     y[non_final_mask] += target_E_scores[non_final_mask]
-    # print(f'y\n{y}')
 
     state_batch = torch.tensor([[s.score, s.num_dice_remaining] for s in batch.state],
                                device=device, dtype=torch.float32)
-    # print(state_batch)
+
     policy_E_scores = policy_net(state_batch)
+
+    if VERBOSE:
+        print(f'state_batch\n{state_batch}')
+        print(f'next_states\n{next_states}')
+        print(f'target_net_e_scores\n{target_E_scores}')
+        print(f'reward batch\n{reward_batch}')
+        print(f'y\n{y}')
+        print(f'policy_E_scores\n{policy_E_scores}')
 
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
@@ -295,10 +297,10 @@ def plot_scores(show_result=False):
 
 
 OPTIMIZER = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-MEMORY = ReplayMemory(100)
-NUM_TRAINING_TURNS = 1_000
+MEMORY = ReplayMemory(300)
+NUM_TRAINING_TURNS = 2
 TURNS_COMPLETE = 0
-VERBOSE = False
+VERBOSE = True
 
 for turn_idx in range(NUM_TRAINING_TURNS):
     if VERBOSE: print(f'\n----- turn {turn_idx} -----')
@@ -381,13 +383,15 @@ for turn_idx in range(NUM_TRAINING_TURNS):
 
     # plot
     EPISODE_SCORES.append(turn_score)
-    plot_scores()
+    if not VERBOSE:
+        plot_scores()
 
 if VERBOSE:
     print(MEMORY)
     print(EPISODE_SCORES)
 
 print('Complete')
-plot_scores(show_result=True)
-plt.ioff()
-plt.show()
+if not VERBOSE:
+    plot_scores(show_result=True)
+    plt.ioff()
+    plt.show()

@@ -1,7 +1,12 @@
 import abc
 import time
+import math
 import random
 
+import torch
+
+from farkle import utils
+from models import models
 from farkle.logic.gameobjects import GameState
 from farkle.logic.gameobjects import DiceHand, Turn, RollDecision
 
@@ -15,9 +20,58 @@ class Player(metaclass=abc.ABCMeta):
         return f'{self.name}: {self.score} points'
 
     @abc.abstractmethod
-    def play_dicehand(self, dice_hand, game_state: GameState) -> RollDecision:
-        """Handles player's rolling and scoring decisions and returns points earned"""
+    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+        """Handles player's rolling and scoring decisions and returns chosen ps and roll again decision"""
 
+
+class DQNAgent(Player):
+    def __int__(self, name: str) -> None:
+        super().__init__(name)
+
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # todo new or load
+        self.policy_net = models.DQN().to(self.device)
+
+        # training
+        self.training = True
+
+        self.roll_again_likelihood = 0.7
+
+        self.turns_complete = 0
+        self.eps_start = 0.9
+        self.eps_end = 0.05
+        self.eps_decay = 1000
+
+    def eps_threshold(self):
+        """exponentially decays from eps_start to esp_end as turns_complete increases"""
+        return (self.eps_end + (self.eps_start - self.eps_end) *
+                math.exp(-1. * self.turns_complete / self.eps_decay))
+
+    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+        """returns chosen ps and roll again decision"""
+        ps_list = dh.possible_scores()
+        states = torch.tensor([[int(dh.score + ps.score),
+                                utils.dice_remaining_convert(len(dh.dice_values_free()) - ps.num_dice)]
+                               for ps in ps_list],
+                              device=self.device, dtype=torch.float32)
+        state_scores = torch.tensor([[int(dh.score + ps.score)] for ps in ps_list])
+        E_add_scores = self.expected_additional_score(states)
+        E_scores = torch.where(E_add_scores > 0, E_add_scores, 0.0) + state_scores
+
+        if self.training and random.random() < self.eps_threshold():
+            # chose random move
+            random_idx = random.choice(range(len(ps_list)))
+            return ps_list[random_idx], random.random() < self.roll_again_likelihood
+        else:
+            # use model
+            max_score_idx = E_scores.argmax()
+            chosen_ps: DiceHand = ps_list[max_score_idx]
+            roll_again = bool(E_add_scores[max_score_idx] > 0)
+            return chosen_ps, roll_again
+
+    def expected_additional_score(self, states: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            return self.policy_net(states)
 
 class RobotPlayer(Player, metaclass=abc.ABCMeta):
     def __int__(self, name: str, delay_seconds: float = 1) -> None:
