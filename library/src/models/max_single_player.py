@@ -190,7 +190,7 @@ def decide_training_will_roll_again(E_score: float) -> bool:
         return decide_will_roll_again(E_score)
     else:
         if VERBOSE: print('select random roll again')
-        return random.choice([True, False])
+        return random.random() < 0.7  # 70% of time choose to roll again
 
 
 def select_action(dh: DiceHand) -> tuple[DiceHand, float]:
