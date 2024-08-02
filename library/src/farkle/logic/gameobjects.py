@@ -7,6 +7,8 @@ from time import perf_counter
 from dataclasses import dataclass
 from functools import cached_property
 
+from farkle.logic import scoring
+
 
 class Die(object):
     def __init__(self, value: int | None = None):
@@ -65,6 +67,11 @@ class DiceHand(object):
             self.dice = {i: GameDie(Die(args[i]))
                          for i in range(len(args))}
         self.score = 0 if 'score' not in kwargs else kwargs['score']
+        score_rules = None
+        if 'score_rules' in kwargs:
+            if hasattr(scoring, kwargs['score_rules']):
+                score_rules = getattr(scoring, kwargs['score_rules'])
+        self.score_rules = score_rules if score_rules is not None else scoring.STANDARD_SCORING_HANDS_DICT
 
     def roll_all_dice(self):
         """rolls and unlocks all dice"""
@@ -303,13 +310,13 @@ class DiceHand(object):
         return_score_list = []
         for die_idx in range(6):
             dc = dice_count_list[die_idx]
-            if dc >= min(SCORING_HANDS_DICT[die_idx + 1].keys()):
+            if dc >= min(self.score_rules[die_idx + 1].keys()):
                 this_ps_list = []
                 this_score_list = []
-                for dice_score_count in SCORING_HANDS_DICT[die_idx + 1]:
+                for dice_score_count in self.score_rules[die_idx + 1]:
                     if dc >= dice_score_count:
                         this_ps = np.array([0 for _ in range(6)])
-                        this_score = SCORING_HANDS_DICT[die_idx + 1][dice_score_count]
+                        this_score = self.score_rules[die_idx + 1][dice_score_count]
                         this_ps[die_idx] = dice_score_count
                         remaining_count = dc - dice_score_count
                         remaining_dice_count_list = [i for i in dice_count_list]
@@ -367,7 +374,6 @@ class DiceHand(object):
         self.lock_from_dicehand(dice_hand)
 
 
-# TODO: Add ability to define scoring patterns such as 3 pairs
 SCORING_HANDS = (
 
     DiceHand(1, score=100)
@@ -380,13 +386,6 @@ SCORING_HANDS = (
     , DiceHand(6, 6, 6, score=600)
 
 )
-
-SCORING_HANDS_DICT = {1: {1: 100, 3: 1000},
-                      2: {3: 200},
-                      3: {3: 300},
-                      4: {3: 400},
-                      5: {1: 50, 3: 500},
-                      6: {3: 600}}
 
 
 @dataclass(frozen=True)
