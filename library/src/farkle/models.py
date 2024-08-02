@@ -1,5 +1,5 @@
 import random
-from collections import deque
+from collections import deque, namedtuple
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -45,3 +45,11 @@ class ReplayMemory(object):
             s += f'\t{i}\n'
         s += ')'
         return s
+
+
+TrainingState = namedtuple('TrainingState',
+                           ('score', 'num_dice_remaining'))
+
+# todo: don't think I need to record roll_again for use anywhere
+Transition = namedtuple('Transition',
+                        ('state', 'next_state', 'reward'))

@@ -12,6 +12,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from farkle.logic.gameobjects import DiceHand
+from farkle.game.players import DQNAgent
 
 # Relies heavily on code and examples in:
 # https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
@@ -39,12 +40,12 @@ Action:
 """
 
 # set up matplotlib
-is_ipython = 'inline' in matplotlib.get_backend()
-if is_ipython:
-    # pass
-    from IPython import display
-
-plt.ion()
+# is_ipython = 'inline' in matplotlib.get_backend()
+# if is_ipython:
+#     # pass
+#     from IPython import display
+#
+# plt.ion()
 
 # if GPU is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -99,13 +100,13 @@ class DQN(nn.Module):
 # EPS_DECAY controls the rate of exponential decay of epsilon, higher means a slower decay
 # TAU is the update rate of the target network
 # LR is the learning rate of the ``AdamW`` optimizer
-BATCH_SIZE = 4
+BATCH_SIZE = 800
 GAMMA = 1  # not discounting since there's a definite, eventual end to every turn
 EPS_PS_START = 0.9  # whether to choose the estimated max possible score
 EPS_PS_END = 0.05
 EPS_ROLL_START = 0.9  # whether to roll again regardless if recommended by est max ps
 EPS_ROLL_END = 0.05
-EPS_DECAY = 1000
+EPS_DECAY = 10_000
 TAU = 0.005
 LR = 1e-4
 
@@ -196,10 +197,37 @@ def decide_training_will_roll_again(E_score: float) -> bool:
 def select_action(dh: DiceHand) -> tuple[DiceHand, bool]:
     """chooses possible score and whether to roll again"""
     global TURNS_COMPLETE  # idk where this needs to sit in the logic
-    chosen_ps, E_score = select_training_possible_score(dh)
-    will_roll_again = decide_training_will_roll_again(E_score)
+    # chosen_ps, E_score = select_training_possible_score(dh)
+    # will_roll_again = decide_training_will_roll_again(E_score)
     TURNS_COMPLETE += 1
-    return chosen_ps, will_roll_again
+    # return chosen_ps, will_roll_again
+    eps_threshold = EPS_PS_END + (EPS_PS_START - EPS_PS_END) * \
+                    math.exp(-1. * TURNS_COMPLETE / EPS_DECAY)
+    ps_list = dh.possible_scores()
+    states = torch.tensor([[int(dh.score + ps.score),
+                            dice_remaining_convert(len(dh.dice_values_free()) - ps.num_dice)]
+                           for ps in ps_list],
+                          device=device, dtype=torch.float32)
+    if VERBOSE: print(f'states\n{states}')
+    state_scores = torch.tensor([[int(dh.score + ps.score)] for ps in ps_list])
+    if VERBOSE: print(f'state_scores\n{state_scores}')
+    E_add_scores = evaluate_expected_scores(states)
+    if VERBOSE: print(f'E_add_scores\n{E_add_scores}')
+    E_scores = torch.where(E_add_scores > 0, E_add_scores, 0.0) + state_scores
+    if VERBOSE: print(f'E_scores\n{E_scores}')
+
+    if random.random() < eps_threshold:
+        if VERBOSE: print(f'random actions')
+        # chose random move
+        random_idx = random.choice(range(len(ps_list)))
+        return ps_list[random_idx], random.random() < 0.7
+    else:
+        if VERBOSE: print('model action')
+        # use model
+        max_score_idx = E_scores.argmax()
+        chosen_ps: DiceHand = ps_list[max_score_idx]
+        roll_again = bool(E_add_scores[max_score_idx] > 0)
+        return chosen_ps, roll_again
 
 
 TrainingState = namedtuple('TrainingState',
@@ -237,22 +265,23 @@ def optimize_model():
     with torch.no_grad():
         target_E_scores = target_net(next_states)
 
-    reward_batch = torch.tensor([[r] for r in batch.reward], device=device, dtype=torch.float32)
-
-    y = reward_batch
-    # this is where i'd discount with GAMMA
-    y[non_final_mask] += target_E_scores[non_final_mask]
-
     state_batch = torch.tensor([[s.score, s.num_dice_remaining] for s in batch.state],
                                device=device, dtype=torch.float32)
-
-    policy_E_scores = policy_net(state_batch)
 
     if VERBOSE:
         print(f'state_batch\n{state_batch}')
         print(f'next_states\n{next_states}')
         print(f'target_net_e_scores\n{target_E_scores}')
-        print(f'reward batch\n{reward_batch}')
+
+    reward_batch = torch.tensor([[r] for r in batch.reward], device=device, dtype=torch.float32)
+    if VERBOSE: print(f'reward_batch\n{reward_batch}')
+    y = reward_batch
+    # this is where i'd discount with GAMMA
+    y[non_final_mask] += target_E_scores[non_final_mask]
+
+    policy_E_scores = policy_net(state_batch)
+
+    if VERBOSE:
         print(f'y\n{y}')
         print(f'policy_E_scores\n{policy_E_scores}')
 
@@ -282,116 +311,123 @@ def plot_scores(show_result=False):
     plt.ylabel('Score')
     plt.plot(durations_t.numpy())
     # Take 100 episode averages and plot them too
-    if len(durations_t) >= 100:
-        means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
-        means = torch.cat((torch.zeros(99), means))
+    if len(durations_t) >= 1000:
+        means = durations_t.unfold(0, 1000, 1).mean(1).view(-1)
+        means = torch.cat((torch.zeros(999), means))
         plt.plot(means.numpy())
 
-    plt.pause(0.001)  # pause a bit so that plots are updated
-    if is_ipython:
-        if not show_result:
-            display.display(plt.gcf())
-            display.clear_output(wait=True)
-        else:
-            display.display(plt.gcf())
+    # plt.pause(0.001)  # pause a bit so that plots are updated
+    # if is_ipython:
+    #     if not show_result:
+    #         display.display(plt.gcf())
+    #         display.clear_output(wait=True)
+    #     else:
+    #         display.display(plt.gcf())
 
 
 OPTIMIZER = optim.AdamW(policy_net.parameters(), lr=LR, amsgrad=True)
-MEMORY = ReplayMemory(300)
-NUM_TRAINING_TURNS = 2
+MEMORY = ReplayMemory(1600)
+NUM_TRAINING_TURNS = 50_000
 TURNS_COMPLETE = 0
-VERBOSE = True
+VERBOSE = False
 
-for turn_idx in range(NUM_TRAINING_TURNS):
-    if VERBOSE: print(f'\n----- turn {turn_idx} -----')
-    dh = DiceHand()  # init as rolled dh
-    if VERBOSE: print(dh)
-    will_roll_again = True
-    score_post = dh.score
-    state_post = TrainingState(score=score_post, num_dice_remaining=dice_remaining_convert(len(dh.free_dice)))
-    while not dh.farkled and will_roll_again:
-        # capture initial dh state
-        state_pre = state_post
-        if VERBOSE: print(f'state pre: {state_pre}')
+# for turn_idx in range(NUM_TRAINING_TURNS):
+#     if VERBOSE: print(f'\n----- turn {turn_idx} -----')
+#     dh = DiceHand()  # init as rolled dh
+#     if VERBOSE: print(dh)
+#     will_roll_again = True
+#     score_post = dh.score
+#     state_post = TrainingState(score=score_post, num_dice_remaining=dice_remaining_convert(len(dh.free_dice)))
+#     while not dh.farkled and will_roll_again:
+#         # capture initial dh state
+#         state_pre = state_post
+#         if VERBOSE: print(f'state pre: {state_pre}')
+#
+#         # choose action if not farkled
+#         # but b/c we're in this loop we've already not farkled
+#         # policy_net makes decision
+#         chosen_ps, will_roll_again = select_action(dh)
+#         if VERBOSE:
+#             print('Chosen ps:', chosen_ps)
+#             print('Will roll again:', will_roll_again)
+#         # execute decision
+#         dh.lock_from_dicehand(chosen_ps)
+#         # save immediate reward of decision
+#         reward = chosen_ps.score
+#         if VERBOSE: print('reward:', reward)
+#         score_post = dh.score
+#         num_dice_remaining_post = dice_remaining_convert(len(dh.free_dice))
+#         state_post = TrainingState(score=score_post,
+#                                    num_dice_remaining=num_dice_remaining_post)
+#         if VERBOSE: print('state post', state_post)
+#
+#         # save turn transition
+#         MEMORY.push(
+#             Transition(
+#                 state=state_pre,
+#                 roll_again=will_roll_again,
+#                 next_state=state_post,
+#                 reward=reward
+#             )
+#         )
+#
+#         if will_roll_again:
+#             if dh.all_locked:
+#                 dh.roll_all_dice()
+#             else:
+#                 dh.roll()
+#             if VERBOSE: print(f'roll again result: {dh}')
+#
+#     # finally if ended turn by farkle
+#     # `and will_roll_again` necessary since locking dice then choosing to not
+#     # roll again can cause dh.farkled == True
+#     turn_score = 0
+#     if dh.farkled and will_roll_again:
+#         if VERBOSE: print('farkled')
+#         # capture final transition to farkle state
+#         state_pre = state_post
+#         state_post = None
+#         reward = -1 * score_post
+#         MEMORY.push(
+#             Transition(
+#                 state=state_pre,
+#                 roll_again=True,  # bc if farkled there was the intent to roll again
+#                 next_state=state_post,
+#                 reward=reward
+#             )
+#         )
+#     else:
+#         turn_score = dh.score
+#
+#     # train
+#     optimize_model()
+#
+#     # Soft update of the target network's weights
+#     # θ′ ← τ θ + (1 −τ )θ′
+#     target_net_state_dict = target_net.state_dict()
+#     policy_net_state_dict = policy_net.state_dict()
+#     for key in policy_net_state_dict:
+#         target_net_state_dict[key] = policy_net_state_dict[key] * TAU + target_net_state_dict[key] * (1 - TAU)
+#     target_net.load_state_dict(target_net_state_dict)
+#
+#     # plot
+#     EPISODE_SCORES.append(turn_score)
+#     if not VERBOSE and turn_idx % 1000 == 0:
+#         plot_scores()
+#
+# if VERBOSE:
+#     print(MEMORY)
+#     print(EPISODE_SCORES)
+#
+# print('Complete')
+# if not VERBOSE:
+#     plot_scores(show_result=True)
+#     plt.ioff()
+#     plt.show()
 
-        # choose action if not farkled
-        # but b/c we're in this loop we've already not farkled
-        # policy_net makes decision
-        chosen_ps, will_roll_again = select_action(dh)
-        if VERBOSE:
-            print('Chosen ps:', chosen_ps)
-            print('Will roll again:', will_roll_again)
-        # execute decision
-        dh.lock_from_dicehand(chosen_ps)
-        # save immediate reward of decision
-        reward = chosen_ps.score
-        if VERBOSE: print('reward:', reward)
-        score_post = dh.score
-        num_dice_remaining_post = dice_remaining_convert(len(dh.free_dice))
-        state_post = TrainingState(score=score_post,
-                                   num_dice_remaining=num_dice_remaining_post)
-        if VERBOSE: print('state post', state_post)
-
-        # save turn transition
-        MEMORY.push(
-            Transition(
-                state=state_pre,
-                roll_again=will_roll_again,
-                next_state=state_post,
-                reward=reward
-            )
-        )
-
-        if will_roll_again:
-            if dh.all_locked:
-                dh.roll_all_dice()
-            else:
-                dh.roll()
-            if VERBOSE: print(f'roll again result: {dh}')
-
-    # finally if ended turn by farkle
-    # `and will_roll_again` necessary since locking dice then choosing to not
-    # roll again can cause dh.farkled == True
-    turn_score = 0
-    if dh.farkled and will_roll_again:
-        if VERBOSE: print('farkled')
-        # capture final transition to farkle state
-        state_pre = state_post
-        state_post = None
-        reward = -1 * score_post
-        MEMORY.push(
-            Transition(
-                state=state_pre,
-                roll_again=True,  # bc if farkled there was the intent to roll again
-                next_state=state_post,
-                reward=reward
-            )
-        )
-    else:
-        turn_score = dh.score
-
-    # train
-    optimize_model()
-
-    # Soft update of the target network's weights
-    # θ′ ← τ θ + (1 −τ )θ′
-    target_net_state_dict = target_net.state_dict()
-    policy_net_state_dict = policy_net.state_dict()
-    for key in policy_net_state_dict:
-        target_net_state_dict[key] = policy_net_state_dict[key] * TAU + target_net_state_dict[key] * (1 - TAU)
-    target_net.load_state_dict(target_net_state_dict)
-
-    # plot
-    EPISODE_SCORES.append(turn_score)
-    if not VERBOSE:
-        plot_scores()
-
-if VERBOSE:
-    print(MEMORY)
-    print(EPISODE_SCORES)
-
-print('Complete')
-if not VERBOSE:
-    plot_scores(show_result=True)
-    plt.ioff()
-    plt.show()
+if __name__ == '__main__':
+    agent = DQNAgent('DQNAgent01')
+    agent.verbose = True
+    agent.show_plot = not agent.verbose
+    agent.batch_size = 4
+    agent.train(4)

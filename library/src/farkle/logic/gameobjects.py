@@ -428,6 +428,12 @@ class Turn:
     points_earned: int
 
 
+@dataclass(frozen=True)
+class FarkleAction:
+    possible_score: DiceHand
+    will_roll_again: bool
+
+
 if __name__ == '__main__':
     pass
     # dh1 = DiceHand(1, 1, 5)
