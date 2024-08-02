@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from farkle.game.players import Player, RandomRobotPlayer
+from farkle.game.players import Player
 from farkle.game.renderers import Renderer
 from farkle.logic.gameobjects import GameState, DiceHand, Turn
 
@@ -84,13 +84,3 @@ class Farkle:
                                    goal_score=self.goal_score)
 
             player = next(whos_turn)
-
-
-if __name__ == '__main__':
-    rrp = RandomRobotPlayer('rrp')
-    f = Farkle([rrp], None)
-    print(f)
-    p = f.players[0]
-    p.score = 10
-    print(f)
-

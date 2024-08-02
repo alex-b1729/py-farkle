@@ -1,8 +1,10 @@
+import os
 import abc
 import time
 import math
 import random
 import matplotlib
+import numpy as np
 from time import perf_counter
 import matplotlib.pyplot as plt
 
@@ -32,6 +34,45 @@ class Player(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
         """Handles player's rolling and scoring decisions and returns chosen ps and roll again decision"""
+
+
+class RandomPlayer(Player):
+    def __init__(self, name: str):
+        """This robot's dumb and makes random decisions"""
+        super().__init__(name=name)
+
+    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+        ps: DiceHand = random.choice(dh.possible_scores())
+        return ps, random.choice([True, False])
+
+
+class EVMaximizingPlayer(Player):
+    def __init__(self, name: str):
+        """plays to maximize EV of each roll ignoring any other players"""
+        super().__init__(name=name)
+
+        self.roll_evs = None
+
+    def load_roll_evs(self, path: str):
+        self.roll_evs = utils.load_roll_ev(path)
+
+    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+        assert self.roll_evs is not None
+        pss = dh.possible_scores()
+        evs = []
+        evs_given_roll_decision = []
+        # ev_given_roll_decision = np.array([max(s, 0) for s in ev_list]) + dh.score
+        # decision_idx = np.argmax(ev_with_roll_decision)
+        for ps in pss:
+            nd = utils.dice_remaining_convert(len(dh.free_dice) - ps.num_dice)
+            pts = dh.score + ps.score
+            # todo: handle index out of range
+            evs.append(self.roll_evs[nd][pts])
+            evs_given_roll_decision.append(max(pts + self.roll_evs[nd][pts], pts))
+        # chose greatest score considering not rolling if ev < 0
+        evs_array = np.array(evs_given_roll_decision)
+        choice_idx = np.argmax(evs_array)
+        return pss[choice_idx], evs[choice_idx] > 0
 
 
 class DQNAgent(Player):
@@ -334,34 +375,6 @@ class DQNAgent(Player):
             plt.show()
 
 
-class RobotPlayer(Player, metaclass=abc.ABCMeta):
-    def __int__(self, name: str, delay_seconds: float = 1) -> None:
-        super().__init__(name)
-        self.delay_seconds = delay_seconds
-
-    def play_dicehand(self, dice_hand: DiceHand, game_state: GameState) -> RollDecision:
-        time.sleep(self.delay_seconds)
-        return self.robot_play_dicehand(dice_hand, game_state)
-
-    @abc.abstractmethod
-    def robot_play_dicehand(self, dice_hand: DiceHand, game_state: GameState) -> RollDecision:
-        """Implement robot turn logic"""
-
-
-class RandomRobotPlayer(RobotPlayer):
-    def __init__(self, name: str, delay_seconds: int):
-        """This robot's dumb and makes random decisions"""
-        super().__init__(name=name)
-        self.delay_seconds = delay_seconds
-
-    def robot_play_dicehand(self, dice_hand: DiceHand, game_state: GameState) -> RollDecision:
-        score_decision: DiceHand = random.choice(dice_hand.possible_scores())
-        will_roll_again = random.choice([True, False])
-        post_dicehand = dice_hand.copy()
-        post_dicehand.lock_from_dicehand(score_decision)
-        return RollDecision(dice_hand, post_dicehand, will_roll_again)
-
-
 class HumanPlayer(Player):
     def __int__(self, name: str):
         super().__init__(name)
@@ -374,3 +387,9 @@ class HumanPlayer(Player):
         post_dicehand = dice_hand.copy()
         post_dicehand.lock_from_dicehand(score_decision)
         return RollDecision(dice_hand, post_dicehand, will_roll_again)
+
+
+if __name__ == '__main__':
+    agent = EVMaximizingPlayer('agent007')
+    agent.load_roll_evs(os.path.join('../../../../models', 'dice_points10000_roll_EV.json'))
+    print(agent.play_dicehand(DiceHand('522246', score=950)))
