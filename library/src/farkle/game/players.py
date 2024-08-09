@@ -27,12 +27,14 @@ class Player(metaclass=abc.ABCMeta):
     def __init__(self, name: str) -> None:
         self.name = name
         self.score = 0
+        # agent won't roll again if their score exceeds the goal_score
+        self.goal_score = 1e12
 
     def __repr__(self):
         return f'{self.name}: {self.score} points'
 
     @abc.abstractmethod
-    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+    def play_dicehand(self, dh: DiceHand, verbose: bool = False) -> tuple[DiceHand, bool]:
         """Handles player's rolling and scoring decisions and returns chosen ps and roll again decision"""
 
 
@@ -40,10 +42,11 @@ class RandomPlayer(Player):
     def __init__(self, name: str):
         """This robot's dumb and makes random decisions"""
         super().__init__(name=name)
+        self.roll_again_likelihood = 0.5
 
     def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
         ps: DiceHand = random.choice(dh.possible_scores())
-        return ps, random.choice([True, False])
+        return ps, random.random() < self.roll_again_likelihood
 
 
 class EVMaximizingPlayer(Player):
@@ -51,31 +54,61 @@ class EVMaximizingPlayer(Player):
         """plays to maximize EV of each roll ignoring any other players"""
         super().__init__(name=name)
 
+        # dict of EV if roll again for roll_evs[num_dice][current_points]
         self.roll_evs = None
+        # highest point with an EV in roll_evs
+        self.max_idxd_pt = None
 
     def load_roll_evs(self, path: str):
         self.roll_evs = utils.load_roll_ev(path)
+        self.max_idxd_pt = max(self.roll_evs[1].keys())
 
-    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+    def play_dicehand(self, dh: DiceHand, verbose: bool = False) -> tuple[DiceHand, bool]:
         assert self.roll_evs is not None
         pss = dh.possible_scores()
         evs = []
         evs_given_roll_decision = []
-        # ev_given_roll_decision = np.array([max(s, 0) for s in ev_list]) + dh.score
-        # decision_idx = np.argmax(ev_with_roll_decision)
+        if verbose: print(f'Player {self.name} playing {dh}')
         for ps in pss:
             nd = utils.dice_remaining_convert(len(dh.free_dice) - ps.num_dice)
             pts = dh.score + ps.score
-            # todo: handle index out of range
-            evs.append(self.roll_evs[nd][pts])
-            evs_given_roll_decision.append(max(pts + self.roll_evs[nd][pts], pts))
+            if verbose:
+                print(f'Considering possible score: {ps}')
+                print(f'\tLeaves {nd} dice remaining and {pts} points')
+            if pts <= self.max_idxd_pt:
+                if verbose: print(f'\tEV of re-roll: {self.roll_evs[nd][pts]}')
+                evs.append(self.roll_evs[nd][pts])
+                if pts < self.goal_score:
+                    evs_given_roll_decision.append(max(pts + self.roll_evs[nd][pts], pts))
+                else:
+                    evs_given_roll_decision.append(pts)
+            else:
+                # I've estimated EVs up to where its -EV for all nd, pts
+                # so if pts is too large I know I can treat it as -EV
+                if verbose: print(f'Do not have EV estimate so assuming it\'s negative')
+                evs.append(-1)
+                evs_given_roll_decision.append(pts)
         # chose greatest score considering not rolling if ev < 0
         evs_array = np.array(evs_given_roll_decision)
         choice_idx = np.argmax(evs_array)
-        return pss[choice_idx], evs[choice_idx] > 0
+        if verbose:
+            print(f'Choosing {pss[choice_idx]} since maximizes score of {evs_given_roll_decision[choice_idx]}')
+        # if score exceeds the goal score agent does not roll again
+        if evs_given_roll_decision[choice_idx] < self.goal_score:
+            roll_again = evs[choice_idx] > 0
+            if verbose:
+                print(f"{'R' if roll_again else 'Not r'}olling again since expected points on re-roll: "
+                      f"{round(evs[choice_idx], 2)} {'>' if roll_again else '<='} 0")
+        else:
+            roll_again = False
+            if verbose: print(f'Not rolling again since agent has reached the goal score')
+        return pss[choice_idx], roll_again
 
 
 class DQNAgent(Player):
+    """
+    Haven't had luck getting this DQN to converge
+    """
     def __init__(self, name: str) -> None:
         super().__init__(name)
 
@@ -391,5 +424,8 @@ class HumanPlayer(Player):
 
 if __name__ == '__main__':
     agent = EVMaximizingPlayer('agent007')
-    agent.load_roll_evs(os.path.join('../../../../models', 'dice_points10000_roll_EV.json'))
-    print(agent.play_dicehand(DiceHand('522246', score=950)))
+    agent.goal_score = 5_000
+    agent.load_roll_evs('/Users/abrefeld/ab/Scripts/py-farkle/models/roll_EV_12000.json')
+    dh = DiceHand('522234')
+    dh.score = 1000
+    print(agent.play_dicehand(dh, verbose=True))
