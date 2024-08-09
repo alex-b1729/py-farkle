@@ -1,6 +1,5 @@
 import os
 import abc
-import time
 import math
 import random
 import matplotlib
@@ -13,8 +12,11 @@ import torch.nn as nn
 import torch.optim as optim
 
 from farkle import utils, models
-from farkle.logic.gameobjects import GameState
-from farkle.logic.gameobjects import DiceHand, Turn, RollDecision
+from farkle.logic.gameobjects import (
+    DiceHand,
+    FarkleAction,
+    RollDecision,
+)
 
 # set up matplotlib
 # IS_PYTHON = 'inline' in matplotlib.get_backend()
@@ -34,19 +36,50 @@ class Player(metaclass=abc.ABCMeta):
         return f'{self.name}: {self.score} points'
 
     @abc.abstractmethod
-    def play_dicehand(self, dh: DiceHand, verbose: bool = False) -> tuple[DiceHand, bool]:
+    def play_dicehand(self, dh: DiceHand, verbose: bool = False) -> FarkleAction:
         """Handles player's rolling and scoring decisions and returns chosen ps and roll again decision"""
+
+    def play_turn(self, verbose: bool = False) -> iter:
+        """
+        yield RollDecisions until player chooses to end turn or farkles
+        """
+        dh = DiceHand()  # player's initial roll
+        will_roll_again = True
+
+        while not dh.farkled and will_roll_again:
+            dh_pre = dh.copy()
+            action = self.play_dicehand(dh, verbose)
+            will_roll_again = action.will_roll_again
+            dh.lock_from_dicehand(action.possible_score)
+            dh_post = dh.copy()
+
+            yield RollDecision(
+                dh_pre,
+                action.possible_score,
+                dh_post,
+                will_roll_again
+            )
+
+            if will_roll_again:
+                if dh.all_locked:
+                    dh.roll_all_dice()
+                else:
+                    dh.roll()
+
+        if dh.farkled and will_roll_again:
+            dh_pre = dh.copy()
+            dh_post = dh.copy()
+            yield RollDecision(dh_pre, None, dh_post, will_roll_again)
 
 
 class RandomPlayer(Player):
     def __init__(self, name: str):
-        """This robot's dumb and makes random decisions"""
         super().__init__(name=name)
         self.roll_again_likelihood = 0.5
 
-    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+    def play_dicehand(self, dh: DiceHand) -> FarkleAction:
         ps: DiceHand = random.choice(dh.possible_scores())
-        return ps, random.random() < self.roll_again_likelihood
+        return FarkleAction(ps, random.random() < self.roll_again_likelihood)
 
 
 class EVMaximizingPlayer(Player):
@@ -63,7 +96,7 @@ class EVMaximizingPlayer(Player):
         self.roll_evs = utils.load_roll_ev(path)
         self.max_idxd_pt = max(self.roll_evs[1].keys())
 
-    def play_dicehand(self, dh: DiceHand, verbose: bool = False) -> tuple[DiceHand, bool]:
+    def play_dicehand(self, dh: DiceHand, verbose: bool = False) -> FarkleAction:
         assert self.roll_evs is not None
         pss = dh.possible_scores()
         evs = []
@@ -102,7 +135,7 @@ class EVMaximizingPlayer(Player):
         else:
             roll_again = False
             if verbose: print(f'Not rolling again since agent has reached the goal score')
-        return pss[choice_idx], roll_again
+        return FarkleAction(pss[choice_idx], roll_again)
 
 
 class DQNAgent(Player):
@@ -152,7 +185,7 @@ class DQNAgent(Player):
         return (self.eps_end + (self.eps_start - self.eps_end) *
                 math.exp(-1. * self.turns_complete / self.eps_decay))
 
-    def play_dicehand(self, dh: DiceHand) -> tuple[DiceHand, bool]:
+    def play_dicehand(self, dh: DiceHand) -> FarkleAction:
         """returns chosen ps and roll again decision"""
         ps_list = dh.possible_scores()
         states = torch.tensor([[int(dh.score + ps.score),
@@ -173,14 +206,14 @@ class DQNAgent(Player):
             # chose random move
             if self.verbose: print('chose random ps')
             random_idx = random.choice(range(len(ps_list)))
-            return ps_list[random_idx], random.random() < self.roll_again_likelihood
+            return FarkleAction(ps_list[random_idx], random.random() < self.roll_again_likelihood)
         else:
             # use model
             if self.verbose: print('chose model ps')
             max_score_idx = E_scores.argmax()
             chosen_ps: DiceHand = ps_list[max_score_idx]
             roll_again = bool(E_add_scores[max_score_idx] > 0)
-            return chosen_ps, roll_again
+            return FarkleAction(chosen_ps, roll_again)
 
     def expected_additional_score(self, states: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
@@ -412,20 +445,12 @@ class HumanPlayer(Player):
     def __int__(self, name: str):
         super().__init__(name)
 
-    def play_dicehand(self, dice_hand, game_state: GameState) -> RollDecision:
+    def play_dicehand(self, dice_hand) -> FarkleAction:
         select_ps_index = int(input('Index of possible score to play: ')) - 1
         score_decision: DiceHand = dice_hand.possible_scores()[select_ps_index]
         select_roll_again = input('Do you want to roll again? [y/n] ')
         will_roll_again = select_roll_again.lower() == 'y'
         post_dicehand = dice_hand.copy()
         post_dicehand.lock_from_dicehand(score_decision)
-        return RollDecision(dice_hand, post_dicehand, will_roll_again)
-
-
-if __name__ == '__main__':
-    agent = EVMaximizingPlayer('agent007')
-    agent.goal_score = 5_000
-    agent.load_roll_evs('/Users/abrefeld/ab/Scripts/py-farkle/models/roll_EV_12000.json')
-    dh = DiceHand('522234')
-    dh.score = 1000
-    print(agent.play_dicehand(dh, verbose=True))
+        # return RollDecision(dice_hand, post_dicehand, will_roll_again)
+        return FarkleAction(score_decision, will_roll_again)

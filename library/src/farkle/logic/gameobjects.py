@@ -2,7 +2,7 @@ import copy
 import random
 import logging
 import numpy as np
-from typing import NamedTuple
+from typing import Union
 from time import perf_counter
 from dataclasses import dataclass
 from functools import cached_property
@@ -391,6 +391,7 @@ SCORING_HANDS = (
 @dataclass(frozen=True)
 class RollDecision:
     dicehand_pre: DiceHand
+    chosen_ps: Union[DiceHand | None]
     dicehand_post: DiceHand
     will_roll_again: bool
 
