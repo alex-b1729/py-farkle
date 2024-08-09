@@ -65,6 +65,7 @@ TrainingState = namedtuple('TrainingState',
 Transition = namedtuple('Transition',
                         ('state', 'next_state', 'reward'))
 
+
 def farkle_counts(num_dice: int = 6, rule_set: str = None) -> dict[int: int]:
     """return dict mapping num dice to number of farkle rolls under rule_set"""
     rs = None
@@ -179,8 +180,9 @@ class ExpectedPointsValueIteration(object):
     def save(self, path: str):
         dpre = {
             nd: {
-                pts: self.dpre_dict[nd][pts].E_roll_points for pts in self.dpre_dict[nd].keys()
-            } for nd in self.dpre_dict.keys()
+                pts: self.dpre_dict[nd][pts].E_roll_points
+                for pts in self.points_range[:self.upper_points_slice]
+            } for nd in self.dice_range
         }
         with open(path, 'w') as f:
             f.write(json.dumps(dpre, indent=4))
@@ -217,7 +219,7 @@ class ExpectedPointsValueIteration(object):
     def mse(self, dpre1: np.array, dpre2: np.array) -> np.array:
         return ((dpre1 - dpre2) ** 2).mean(axis=1)
 
-    def iter_expectations(self, num_epochs: int = None, max_mse: float = None):
+    def iter_expectations(self, num_epochs: int = None, max_mse: float = None) -> list:
         assert num_epochs is not None or max_mse is not None
         if num_epochs is None:
             num_epochs = 100
@@ -227,6 +229,7 @@ class ExpectedPointsValueIteration(object):
         roll_outcome_dict = utils.roll_outcome_dict(self.num_dice)
 
         mse = np.array([100])
+        mse_list = []
         prev_dpre_array = self.dpre_array()
         print(f'Iterating roll expected value for {self.num_dice} dice for points up to {self.max_points}')
         t0 = perf_counter()
@@ -273,6 +276,7 @@ class ExpectedPointsValueIteration(object):
 
             new_dpre_array = self.dpre_array()
             mse = self.mse(prev_dpre_array, new_dpre_array)
+            mse_list.append(mse)
             prev_dpre_array = np.copy(new_dpre_array)
 
             sys.stdout.write(f'\rEpoch {epoch} complete - max mean squared diff from last: {round(mse.max(), 3)}\n')
@@ -281,3 +285,5 @@ class ExpectedPointsValueIteration(object):
 
         print('Complete ', end='')
         print(f'Time: {round((t1 - t0) / 60, 2)} minutes')
+
+        return mse_list
