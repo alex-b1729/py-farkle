@@ -17,10 +17,10 @@ from farkle.logic.gameobjects import GameState
 from farkle.logic.gameobjects import DiceHand, Turn, RollDecision
 
 # set up matplotlib
-IS_PYTHON = 'inline' in matplotlib.get_backend()
-if IS_PYTHON:
-    from IPython import display
-plt.ion()
+# IS_PYTHON = 'inline' in matplotlib.get_backend()
+# if IS_PYTHON:
+#     from IPython import display
+# plt.ion()
 
 
 class Player(metaclass=abc.ABCMeta):
@@ -275,12 +275,12 @@ class DQNAgent(Player):
             plt.plot(means.numpy())
 
         plt.pause(0.001)  # pause a bit so that plots are updated
-        if IS_PYTHON:
-            if not show_result:
-                display.display(plt.gcf())
-                display.clear_output(wait=True)
-            else:
-                display.display(plt.gcf())
+        # if IS_PYTHON:
+        #     if not show_result:
+        #         display.display(plt.gcf())
+        #         display.clear_output(wait=True)
+        #     else:
+        #         display.display(plt.gcf())
 
     def play_turn(self) -> int:
         """plays hand according to current policy and returns turn's score"""
