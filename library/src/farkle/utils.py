@@ -1,5 +1,6 @@
 import json
 import numpy as np
+from typing import Union
 import matplotlib.pyplot as plt
 
 
@@ -23,7 +24,7 @@ def roll_outcome_dict(num_dice: int = 6) -> dict[int: list]:
     return roll_outcome_dict
 
 
-def load_roll_ev(path: str, as_numpy: bool = False):
+def load_roll_ev(path: str, as_numpy: bool = False) -> Union[dict, np.array]:
     with open(path, 'r') as f:
         dprej = json.loads(f.read())
     if not as_numpy:
