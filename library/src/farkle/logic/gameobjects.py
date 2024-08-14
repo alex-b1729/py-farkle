@@ -390,33 +390,42 @@ SCORING_HANDS = (
 
 @dataclass(frozen=True)
 class RollDecision:
-    dicehand_pre: DiceHand
+    dh_pre: DiceHand
     chosen_ps: Union[DiceHand | None]
-    dicehand_post: DiceHand
+    dh_post: DiceHand
     will_roll_again: bool
 
 
 @dataclass(frozen=True)
 class GameState:
-    scores: dict[str: int]  # player_name: points
-    current_player_name: str
-    dice_hand: DiceHand
-    goal_score: int = 5000
+    players: list
+    current_player_idx: int
+    dh_pre: DiceHand
+    dh_post: DiceHand = None
+    chosen_ps: DiceHand = None
+    start_of_turn: bool = False
+    farkled: bool = False
+    will_roll_again: bool = True
+    goal_score: int = 10_000
 
     def __post_init__(self):
         """validation"""
         # TODO: validate current_player_name in scores.keys()
 
     @cached_property
+    def current_player(self):
+        return self.players[self.current_player_idx]
+
+    @cached_property
     def game_over(self) -> bool:
-        return any([i >= self.goal_score for i in self.scores.values()])
+        return any([p.score >= self.goal_score for p in self.players])
 
     @cached_property
     def winner(self) -> str | None:
         """returns name of winning player"""
         if self.game_over:
-            for p, s in self.scores.items():
-                if s > self.goal_score:
+            for p in self.players:
+                if p.score > self.goal_score:
                     return p
         else:
             return None

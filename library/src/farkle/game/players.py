@@ -54,10 +54,10 @@ class Player(metaclass=abc.ABCMeta):
             dh_post = dh.copy()
 
             yield RollDecision(
-                dh_pre,
-                action.possible_score,
-                dh_post,
-                will_roll_again
+                dh_pre=dh_pre,
+                chosen_ps=action.possible_score,
+                dh_post=dh_post,
+                will_roll_again=will_roll_again
             )
 
             if will_roll_again:
@@ -69,7 +69,12 @@ class Player(metaclass=abc.ABCMeta):
         if dh.farkled and will_roll_again:
             dh_pre = dh.copy()
             dh_post = dh.copy()
-            yield RollDecision(dh_pre, None, dh_post, will_roll_again)
+            yield RollDecision(
+                dh_pre=dh_pre,
+                chosen_ps=None,
+                dh_post=dh_post,
+                will_roll_again=will_roll_again
+            )
 
 
 class RandomPlayer(Player):
