@@ -82,7 +82,7 @@ class RandomPlayer(Player):
         super().__init__(name=name)
         self.roll_again_likelihood = 0.5
 
-    def play_dicehand(self, dh: DiceHand) -> FarkleAction:
+    def play_dicehand(self, dh: DiceHand, verbose: bool = False) -> FarkleAction:
         ps: DiceHand = random.choice(dh.possible_scores())
         return FarkleAction(ps, random.random() < self.roll_again_likelihood)
 

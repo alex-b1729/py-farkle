@@ -418,7 +418,8 @@ class GameState:
 
     @cached_property
     def game_over(self) -> bool:
-        return any([p.score >= self.goal_score for p in self.players])
+        return (any([p.score >= self.goal_score for p in self.players])
+                or self.players[self.current_player_idx].score >= self.goal_score)
 
     @cached_property
     def winner(self) -> str | None:
